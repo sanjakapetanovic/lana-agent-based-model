@@ -1,6 +1,6 @@
 # LANA V&V — Supplementary Material (Code, Data, and Reproducibility)
 
-This repository contains the **NetLogo LANA (Local Adaptive Neural Agents) Validation Edition v5** model,
+This repository contains the **NetLogo LANA (Local Adaptive Neural Agents)** model,
 the full **verification & validation (V&V) test-suite outputs**, and lightweight **analysis scripts**
 supporting the manuscript:
 
@@ -30,7 +30,7 @@ supporting the manuscript:
 ---
 
 ## Software requirements
-- **NetLogo 7.0.3** (version used for the reported runs; newer NetLogo 7.x should also work).
+- **NetLogo 7.1.0** (version used for the reported runs; newer NetLogo 7.x should also work).
 - Python 3.10+ (optional, only for re‑running table/figure aggregation).
 
 Install Python dependencies:
