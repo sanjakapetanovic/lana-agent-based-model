@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software or dataset, please cite the associated manuscript."
+title: "LANA (Local Adaptive Neural Agents): Verification and Validation Suite (NetLogo Validation Edition v5)"
+type: software
+authors:
+  - family-names: "Kapetanović"
+    given-names: "Sanja"
+  - family-names: "Dželalija"
+    given-names: "Mate"
+  - family-names: "Bijedić"
+    given-names: "Nermina"
+  - family-names: "Gaspar"
+    given-names: "Dino"
+  - family-names: "Tipurić-Spužević"
+    given-names: "Snježana"
+year: 2026
+license: MIT
+keywords:
+  - agent-based modeling
+  - spiking neural networks
+  - NetLogo
+  - verification and validation
+  - sensitivity analysis
+repository-code: "REPLACE_WITH_GITHUB_URL"
+identifiers:
+  - type: other
+    value: "REPLACE_WITH_ZENODO_DOI"

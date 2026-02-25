@@ -1,0 +1,1511 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code><![CDATA[; ===========
+; LANA MODEL 
+; ===========
+
+breed [ neurons neuron ]
+breed [ signals signal ]
+directed-link-breed [ synapses synapse ]
+
+neurons-own [
+  V R
+  thr
+  NFun NFun-eff
+  p_op
+  DIn DOut
+  signal_id
+  last-spike?
+  neuron-type
+  spike-age
+  spike-count
+  last-spike-tick
+  min-isi
+]
+
+signals-own [ A signal_id radius vdx vdy ]
+
+synapses-own [ w delay elig ]
+
+patches-own [ eIon eIonNext ]
+
+extensions [csv]
+
+globals [
+  eeg-data
+  EEG-index
+  tick-dt
+  lesion-center
+  A-src B-src
+  Out-region
+  trial-phase correct-count trial-count
+  chain-first-spike-times
+  current-event
+  trial-a-fired
+  trial-b-fired
+  trial-pattern
+  trial-pattern-idx
+  chain-mode?
+  validation-mode
+  E0-initial
+  e-history
+  spike-history
+  firing-rates
+]
+
+to setup
+  clear-all
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  ask patches [ set eIon 0 ]
+
+  set-default-shape neurons "default"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? false
+  set validation-mode "standard"
+  set e-history []
+  set spike-history []
+  set E0-initial 0
+
+  if not is-number? ALPHA        [ set ALPHA 0.2 ]
+  if not is-number? ETA          [ set ETA 0.4 ]
+  if not is-number? V-RESET      [ set V-RESET 0 ]
+  if not is-number? D            [ set D 0.15 ]
+  if not is-number? RHO          [ set RHO 0.01 ]
+  if not is-number? KAPPA-E      [ set KAPPA-E 0.6 ]
+  if not is-number? BETA         [ set BETA 0.95 ]
+  if not is-number? GAMMA        [ set GAMMA 0.05 ]
+  if not is-number? REPEAT-K     [ set REPEAT-K 10 ]
+  if not is-number? THRESHOLD    [ set THRESHOLD 1.0 ]
+  if not is-number? POp          [ set POp 10 ]
+  if not is-number? RADIUS-SIGNAL [ set RADIUS-SIGNAL 5 ]
+  if not is-number? OUT-RANGE    [ set OUT-RANGE 4 ]
+  if not is-number? INIT-NFUN-MEAN [ set INIT-NFUN-MEAN 0.9 ]
+  if not is-number? INIT-NFUN-SD [ set INIT-NFUN-SD 0.08 ]
+  if not is-number? INIT-DEG-MEAN [ set INIT-DEG-MEAN 3 ]
+  if not is-number? INIT-DEG-SD  [ set INIT-DEG-SD 1 ]
+  if not is-number? N-NODES      [ set N-NODES 150 ]
+  if not is-number? LESION-RADIUS [ set LESION-RADIUS 0 ]
+  if not is-number? LESION-DROP  [ set LESION-DROP 0.5 ]
+  if not is-number? TRIAL-LENGTH [ set TRIAL-LENGTH 200 ]
+  if not is-number? FIXED-DELAY  [ set FIXED-DELAY 1 ]
+  if not is-number? FIXED-W      [ set FIXED-W 1.5 ]
+  if not is-number? INHIB-FRAC   [ set INHIB-FRAC 0.2 ]
+  if not is-number? STIM-AMP     [ set STIM-AMP 1.0 ]
+
+  set A-src (list (min-pxcor + 2) (min-pycor + 2))
+  set B-src (list (max-pxcor - 2) (min-pycor + 2))
+  set Out-region (list 0 (max-pycor - 2) 3)
+
+  set trial-phase 0
+  set correct-count 0
+  set trial-count 0
+  set chain-first-spike-times []
+
+  setup-patches
+  setup-neurons-with-inhib-frac
+  reset-plots
+  reset-ticks
+end
+
+to setup-patches
+  ask patches [
+    set eIon 0
+    set eIonNext 0
+    recolor-patch
+  ]
+end
+
+to setup-neurons-with-inhib-frac
+  create-neurons N-NODES [
+    setxy random-xcor random-ycor
+    set size 1.2
+    set color gray + 1
+    set NFun max list 0 (min list 1 (random-normal INIT-NFUN-MEAN INIT-NFUN-SD))
+    if inside-lesion? [ set NFun NFun * LESION-DROP ]
+    set NFun-eff NFun
+    set V 0
+    set R 0
+    set thr THRESHOLD
+    set p_op max list 1 round POp
+    set DIn max list 0 round random-normal INIT-DEG-MEAN INIT-DEG-SD
+    set DOut max list 0 round random-normal INIT-DEG-MEAN INIT-DEG-SD
+    set signal_id one-of [0 1 2]
+    set last-spike? false
+    set spike-age 1000
+    set spike-count 0
+    set last-spike-tick -1000
+    set min-isi 100000
+    ifelse (random-float 1.0 < INHIB-FRAC) [
+      set neuron-type "I"
+      set color blue
+    ] [
+      set neuron-type "E"
+      set color red
+    ]
+  ]
+  ask neurons [ create-outgoing-synapses DOut ]
+end
+
+to-report inside-lesion?
+  let cx item 0 lesion-center
+  let cy item 1 lesion-center
+  report (distancexy cx cy) <= LESION-RADIUS
+end
+
+to create-outgoing-synapses [k]
+  if k <= 0 [ stop ]
+  let candidates other neurons
+  if any? candidates [
+    let sorted-candidates sort-by [[z b] -> (distance z) < (distance b)] candidates
+    let n min list k length sorted-candidates
+    let targets sublist sorted-candidates 0 n
+    let signal-speed OUT-RANGE / 5
+    ask (turtle-set targets) [
+      create-synapse-from myself [
+        set w 1.0
+        set delay max list 1 ceiling (link-length / signal-speed)
+        set elig -1
+      ]
+    ]
+  ]
+end
+
+to sync-neurons
+  ask neurons [
+    set thr THRESHOLD
+    set p_op max list 1 round POp
+  ]
+end
+
+to step
+  set current-event ""
+
+  if EEG-MODE? and (not is-list? eeg-data) [
+    user-message "EEG-MODE ukljucen ali EEG podaci nisu ucitani!"
+    stop
+  ]
+
+  ifelse EEG-MODE? [
+    eeg-stimulus
+    set current-event "eeg"
+  ][
+    if (validation-mode = "standard") and (ticks mod REPEAT-K = 0) [
+      periodic-stimulus
+      set current-event "periodic"
+    ]
+    if (validation-mode = "single-neuron") and (ticks mod REPEAT-K = 0) [
+      ask neurons [
+        set V V + STIM-AMP
+      ]
+      set current-event "m1-stimulus"
+    ]
+    if LOGIC-MODE != "off" [
+      step-logic-experiment
+      if current-event = "" [ set current-event "logic" ]
+    ]
+  ]
+
+  update-nfun-eff
+  diffuse-E
+  update-nfun-eff
+  update-signals
+  neurons-update
+  update-synapses-visuals
+ 
+  if validation-mode = "standard" [
+    update-plasticity
+  ]
+  recolor-neurons
+
+  if validation-mode = "decay" [
+    set e-history lput (list ticks mean-E-reporter) e-history
+  ]
+
+  set spike-history lput (count neurons with [last-spike?]) spike-history
+
+  if PLOT? [ do-update-plots ]
+  plot-mean-E
+  tick
+  log-to-csv
+end
+
+to diffuse-E
+  let EMAX 1e3
+  ask patches [
+    let lap (sum [eIon] of neighbors4 - 4 * eIon)
+    set eIonNext eIon + D * lap - RHO * eIon
+    if any? signals-here [
+      set eIonNext eIonNext + sum [A] of signals-here
+    ]
+    let low-nfun-neurons neurons-here with [ (not last-spike?) and (NFun-eff < 0.3) ]
+    if any? low-nfun-neurons [
+      set eIonNext eIonNext + 0.01 * count low-nfun-neurons
+    ]
+    if not is-number? eIonNext [ set eIonNext 0 ]
+    if eIonNext > EMAX  [ set eIonNext EMAX ]
+    if eIonNext < (0 - EMAX) [ set eIonNext (0 - EMAX) ]
+  ]
+  ask patches [
+    set eIon eIonNext
+    recolor-patch
+  ]
+end
+
+to update-signals
+  ask signals [
+    set A A * BETA
+    set xcor xcor + vdx
+    set ycor ycor + vdy
+    if (abs A < 1e-4) [ die ] 
+  ]
+end
+
+to update-nfun-eff
+  ask neurons [
+    let Ebar mean [eIon] of patches in-radius 1
+    set NFun-eff NFun / (1 + KAPPA-E * Ebar)
+  ]
+end
+
+to neurons-update
+  ask neurons [
+    set last-spike? false
+    if spike-age < 100000 [ set spike-age spike-age + 1 ]
+  ]
+
+  ask synapses [
+    if elig >= 0 [ set elig elig - 1 ]
+  ]
+
+  ask neurons [
+    ifelse (R > 0) [
+      set R R - 1
+      set V V-RESET
+    ] [
+      let lin 0
+      let myid signal_id
+      let local-signals signals in-radius RADIUS-SIGNAL
+
+      ask local-signals with [ signal_id = myid ] [
+        let p distance myself
+        set lin lin + (A * exp (- GAMMA * p))
+      ]
+
+      
+      ask my-in-synapses [
+        if (elig = 0) [
+          let syn-input w * [NFun-eff] of end1
+          ifelse ([neuron-type] of end1 = "I") [
+            set lin lin - syn-input
+          ] [
+            set lin lin + syn-input
+          ]
+        ]
+      ]
+
+      set V (1 - ALPHA * tick-dt) * V + tick-dt * (NFun-eff * lin)
+
+      if (V >= thr) [
+        set last-spike? true
+        set spike-age 0
+        set V V-RESET
+        set R p_op
+
+        set spike-count spike-count + 1
+        let current-isi (ticks - last-spike-tick)
+        if (last-spike-tick >= 0) and (current-isi < min-isi) [
+          set min-isi current-isi
+        ]
+        set last-spike-tick ticks
+
+        if is-list? chain-first-spike-times [
+          if length chain-first-spike-times > 0 [
+            let idx who
+            if (idx < length chain-first-spike-times) [
+              if (item idx chain-first-spike-times = -1) [
+                set chain-first-spike-times replace-item idx chain-first-spike-times ticks
+              ]
+            ]
+          ]
+        ]
+
+        ask my-out-synapses [
+          set elig delay
+        ]
+
+        let h random-float 360
+        hatch-signals 1 [
+          ;; Inhibitorni neuroni emituju negativne signale
+          ifelse ([neuron-type] of myself = "I") [
+            set A (- [NFun-eff] of myself)
+          ] [
+            set A [NFun-eff] of myself
+          ]
+          set signal_id [signal_id] of myself
+          set radius RADIUS-SIGNAL
+          set vdx cos h * OUT-RANGE / 5
+          set vdy sin h * OUT-RANGE / 5
+          set size 0.6
+          ifelse ([neuron-type] of myself = "I") [
+            set color blue
+          ] [
+            set color red
+          ]
+        ]
+      ]
+    ]
+  ]
+end
+
+to update-plasticity
+  let mu 0.01
+  let lambda 0.05
+  ask synapses [
+    set w (1 - mu) * w
+    if ([last-spike?] of end1) and ([last-spike?] of end2) [ set w w + lambda ]
+    if w < 0 [ set w 0 ]
+    if w > 5 [ set w 5 ]
+  ]
+end
+
+to periodic-stimulus
+  if not is-list? A-src [ stop ]
+  let sx item 0 A-src
+  let sy item 1 A-src
+  ask patch sx sy [
+    sprout-signals 1 [
+      setxy pxcor pycor
+      set A STIM-AMP
+      set signal_id 0
+      set radius RADIUS-SIGNAL
+      set vdx 0.3
+      set vdy 0.0
+      set size 0.7
+      if signal_id = 0 [ set color red ]
+      if signal_id = 1 [ set color blue ]
+      if signal_id = 2 [ set color green ]
+    ]
+  ]
+end
+
+to stimulus-once
+  periodic-stimulus
+end
+
+to apply-lesion [x y]
+  set lesion-center (list x y)
+  ask neurons with [
+    (distancexy x y) <= LESION-RADIUS
+  ] [
+    set NFun NFun * LESION-DROP
+    set color gray
+    set size size * 0.7
+  ]
+end
+
+to step-logic-experiment
+  if not is-list? Out-region [ stop ]
+  set trial-phase trial-phase + 1
+
+  let pat item trial-pattern-idx trial-pattern
+  let do-a (item 0 pat = 1)
+  let do-b (item 1 pat = 1)
+
+  if (trial-phase = round (TRIAL-LENGTH / 2)) [
+    if do-a [
+      inject-at A-src 0
+      set trial-a-fired true
+    ]
+    if do-b [
+      inject-at B-src 0
+      set trial-b-fired true
+    ]
+  ]
+
+  if trial-phase >= TRIAL-LENGTH [
+    let outx item 0 Out-region
+    let outy item 1 Out-region
+    let outr item 2 Out-region
+    let out-spikes count (neurons with [ (distancexy outx outy) <= outr and last-spike? ])
+
+    let desired false
+    if LOGIC-MODE = "AND" [ set desired (trial-a-fired and trial-b-fired) ]
+    if LOGIC-MODE = "OR"  [ set desired (trial-a-fired or trial-b-fired) ]
+    if LOGIC-MODE = "XOR" [ set desired (trial-a-fired xor trial-b-fired) ]
+
+    let predicted (out-spikes > 0)
+    if predicted = desired [ set correct-count correct-count + 1 ]
+    set trial-count trial-count + 1
+
+    set trial-phase 0
+    set trial-a-fired false
+    set trial-b-fired false
+    set trial-pattern-idx (trial-pattern-idx + 1) mod length trial-pattern
+  ]
+end
+
+to inject-at [ src id ]
+  let sx item 0 src
+  let sy item 1 src
+  ask patch sx sy [
+    sprout-signals 1 [
+      setxy pxcor pycor
+      set A STIM-AMP
+      set signal_id id
+      set radius RADIUS-SIGNAL
+      set vdx 0
+      set vdy 0
+      set size 0.7
+      if signal_id = 0 [ set color red ]
+      if signal_id = 1 [ set color blue ]
+      if signal_id = 2 [ set color green ]
+    ]
+  ]
+end
+
+to recolor-patch
+  let ESHOW 5
+  set pcolor scale-color violet eIon 0 ESHOW
+end
+
+to recolor-neurons
+  ask neurons [
+    ifelse last-spike? [
+      set color orange
+    ] [
+      ifelse (neuron-type = "I") [
+        set color blue
+      ] [
+        set color red
+      ]
+    ]
+  ]
+end
+
+to reset-plots
+  if PLOT? [
+    set-current-plot "Spikes"          clear-plot
+    set-current-plot "Environment E"   clear-plot
+    set-current-plot "Logic Accuracy"  clear-plot
+  ]
+end
+
+to do-update-plots
+  set-current-plot "Spikes"
+  set-current-plot-pen "spikes"
+  plot count neurons with [ last-spike? ]
+
+  set-current-plot "Environment E"
+  set-current-plot-pen "mean-E"
+  let mE 0
+  if all? patches [ is-number? eIon ] [
+    set mE mean [eIon] of patches
+  ]
+  plot mE
+
+  set-current-plot "Logic Accuracy"
+  set-current-plot-pen "accuracy"
+  ifelse (trial-count > 0) [
+    plot 100 * correct-count / trial-count
+  ] [
+    plot 0
+  ]
+end
+
+; ============================
+; PHASE — CHAIN TEST
+; ============================
+
+to setup-chain-fixed-delay
+  clear-all
+  set-default-shape neurons "circle"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? true
+  set validation-mode "chain"
+  set e-history []
+  set spike-history []
+  set E0-initial 0
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  if not is-number? FIXED-DELAY [ set FIXED-DELAY 1 ]
+  if not is-number? FIXED-W     [ set FIXED-W 1.5 ]
+
+ 
+  set KAPPA-E 0
+  set D 0
+  set RHO 1
+
+  set A-src (list (min-pxcor + 2) 0)
+  set B-src (list (max-pxcor - 2) 0)
+  set Out-region (list 0 0 2)
+  set LOGIC-MODE "off"
+
+
+  create-neurons 11 [
+    let i who
+    setxy (i * 2 - 10) 0
+    set size 2
+    set color (gray + 1)
+    set V 0
+    set R 0
+    set thr THRESHOLD
+    set NFun 1
+    set NFun-eff 1
+    set p_op max list 1 round POp
+    set DIn 0
+    set DOut 1
+    set signal_id (who + 100)
+    set last-spike? false
+    set spike-age 1000
+    set spike-count 0
+    set last-spike-tick -1000
+    set min-isi 100000
+    set neuron-type "E"
+  ]
+
+  ask neurons with [who < max [who] of neurons] [
+    let nxt one-of neurons with [ who = [who] of myself + 1 ]
+    if nxt != nobody [
+      create-synapse-to nxt [
+        set w FIXED-W
+        set delay FIXED-DELAY
+        set elig -1
+      ]
+    ]
+  ]
+
+  set chain-first-spike-times n-values 11 [ -1 ]
+  reset-plots
+  reset-ticks
+end
+
+to stimulus-chain
+  if any? neurons [
+    ask neuron 0 [
+      set V (thr / (1 - ALPHA * tick-dt)) + 0.0001
+      set R 0
+    ]
+  ]
+end
+
+to compute-chain-metrics
+  if not is-list? chain-first-spike-times [
+    show "ERROR: chain-first-spike-times is not a list."
+    stop
+  ]
+  let times chain-first-spike-times
+  if member? -1 times [
+    show (word "Chain incomplete. Times: " times)
+    stop
+  ]
+  let T0 item 0 times
+  let Tlast item (length times - 1) times
+  let speed 0
+  if (Tlast > T0) [ set speed (length times - 1) / (Tlast - T0) ]
+  let delays []
+  let i 1
+  while [i < length times] [
+    set delays lput ((item i times) - (item (i - 1) times)) delays
+    set i i + 1
+  ]
+  let errors map [c -> abs (c - FIXED-DELAY)] delays
+  let mae mean errors
+  show (word "=== CHAIN METRICS ===")
+  show (word "FIXED-DELAY=" FIXED-DELAY " FIXED-W=" FIXED-W " SEED=" SEED)
+  show (word "Spike times: " times)
+  show (word "Deltas: " delays)
+  show (word "Mean DeltaT: " mean delays)
+  show (word "MAE: " mae)
+  show (word "Speed: " speed " neurons/tick")
+  show (word "========================")
+end
+
+to-report chain-complete?
+  if not is-list? chain-first-spike-times [ report false ]
+  report not member? -1 chain-first-spike-times
+end
+
+to-report chain-mean-delta
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  let delays []
+  let i 1
+  while [i < length times] [
+    set delays lput ((item i times) - (item (i - 1) times)) delays
+    set i i + 1
+  ]
+  report mean delays
+end
+
+to-report chain-mae
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  let delays []
+  let i 1
+  while [i < length times] [
+    set delays lput ((item i times) - (item (i - 1) times)) delays
+    set i i + 1
+  ]
+  report mean (map [c -> abs (c - FIXED-DELAY)] delays)
+end
+
+to-report chain-speed
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  let T0 item 0 times
+  let Tlast item (length times - 1) times
+  if Tlast = T0 [ report -1 ]
+  report (length times - 1) / (Tlast - T0)
+end
+
+to-report chain-total-time
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  report (item (length times - 1) times) - (item 0 times)
+end
+
+; ===========================
+; PHASE — ENERGY DECAY TEST
+; ===========================
+
+to setup-decay-test
+  clear-all
+  set-default-shape neurons "default"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? false
+  set validation-mode "decay"
+  set spike-history []
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+ 
+  if not is-number? RHO [ set RHO 0.01 ]
+  if RHO >= 1 [ set RHO 0.01 ]
+  set D 0
+  set KAPPA-E 0
+
+  ask patches [
+    set eIon 5.0
+    set eIonNext 0
+    recolor-patch
+  ]
+  set E0-initial 5.0
+  set e-history (list (list 0 5.0))
+
+  set LOGIC-MODE "off"
+  set chain-first-spike-times []
+
+  reset-plots
+  reset-ticks
+end
+
+to setup-decay-test-with-neurons
+  setup
+  set validation-mode "decay"
+  ask patches [
+    set eIon 5.0
+    set eIonNext 0
+  ]
+  set E0-initial 5.0
+  set e-history (list (list 0 5.0))
+end
+
+to-report decay-E-current
+  report mean [eIon] of patches
+end
+
+to-report decay-E0
+  report E0-initial
+end
+
+to-report decay-e-history-length
+  report length e-history
+end
+
+; ===============================
+; PHASE — THRESHOLD BIFURCATION
+; ===============================
+
+to setup-single-neuron
+  clear-all
+  set-default-shape neurons "circle"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? false
+  set validation-mode "single-neuron"
+  set e-history []
+  set spike-history []
+  set E0-initial 0
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  if not is-number? STIM-AMP [ set STIM-AMP 1.0 ]
+
+
+  set KAPPA-E 0
+  set D 0
+  if not is-number? RHO [ set RHO 0.01 ]
+  if RHO >= 1 [ set RHO 0.01 ]
+
+  set A-src (list 0 0)
+  set B-src (list 0 0)
+  set Out-region (list 0 0 2)
+  set LOGIC-MODE "off"
+  set chain-first-spike-times []
+
+  create-neurons 1 [
+    setxy 0 0
+    set size 3
+    set V 0
+    set R 0
+    set thr THRESHOLD
+    set NFun 1
+    set NFun-eff 1
+    set p_op max list 1 round POp
+    set DIn 0
+    set DOut 0
+    set signal_id 0
+    set last-spike? false
+    set spike-age 1000
+    set spike-count 0
+    set last-spike-tick -1000
+    set min-isi 100000
+    set neuron-type "E"
+    set color red
+  ]
+
+  setup-patches
+  reset-plots
+  reset-ticks
+end
+
+to stimulate-single
+  ask patch 0 0 [
+    sprout-signals 1 [
+      setxy 0 0
+      set A STIM-AMP
+      set signal_id 0
+      set radius RADIUS-SIGNAL
+      set vdx 0
+      set vdy 0
+      set size 0.7
+      set color red
+    ]
+  ]
+end
+
+; ====================================
+; PHASE — REFRACTORY CHECK REPORTERI
+; ====================================
+
+to-report global-min-isi
+  let firing-neurons neurons with [spike-count >= 2]
+  ifelse any? firing-neurons [
+    report min [min-isi] of firing-neurons
+  ] [
+    report -1
+  ]
+end
+
+to-report mean-min-isi
+  let firing-neurons neurons with [spike-count >= 2]
+  ifelse any? firing-neurons [
+    report mean [min-isi] of firing-neurons
+  ] [
+    report -1
+  ]
+end
+
+; ===================
+; PHASE — EI BALANCE
+; ===================
+
+to-report mean-firing-rate
+  ifelse (ticks > 0 and count neurons > 0) [
+    report sum [spike-count] of neurons / (count neurons * ticks)
+  ] [
+    report 0
+  ]
+end
+
+to-report excitatory-firing-rate
+  let e-neurons neurons with [neuron-type = "E"]
+  ifelse (ticks > 0 and any? e-neurons) [
+    report sum [spike-count] of e-neurons / (count e-neurons * ticks)
+  ] [
+    report 0
+  ]
+end
+
+to-report inhibitory-firing-rate
+  let i-neurons neurons with [neuron-type = "I"]
+  ifelse (ticks > 0 and any? i-neurons) [
+    report sum [spike-count] of i-neurons / (count i-neurons * ticks)
+  ] [
+    report 0
+  ]
+end
+
+to-report synchrony-index
+  if length spike-history < 10 [ report 0 ]
+  let m mean spike-history
+  if m = 0 [ report 0 ]
+  let s standard-deviation spike-history
+  report s / m
+end
+
+to-report fano-factor
+  if length spike-history < 10 [ report 0 ]
+  let m mean spike-history
+  if m = 0 [ report 0 ]
+  report variance spike-history / m
+end
+
+; =============================
+; PHASE — TRANSITION 
+; =============================
+
+to-report is-oscillating?
+  if length spike-history < 50 [ report false ]
+  let recent sublist spike-history (length spike-history - 50) (length spike-history)
+  let m mean recent
+  if m = 0 [ report false ]
+  let s standard-deviation recent
+  report (s / m) > 1.0
+end
+
+to-report spike-cv
+  if length spike-history < 100 [ report 0 ]
+  let recent sublist spike-history (length spike-history - 100) (length spike-history)
+  let m mean recent
+  if m = 0 [ report 0 ]
+  report standard-deviation recent / m
+end
+
+; ==========================
+; PHASE — GLOBAL SENSITIVITY
+; ==========================
+
+to-report final-total-spikes
+  report sum [spike-count] of neurons
+end
+
+to-report final-mean-E
+  report mean [eIon] of patches
+end
+
+to-report final-max-E
+  report max [eIon] of patches
+end
+
+to-report active-neuron-fraction
+  ifelse count neurons > 0 [
+    report count neurons with [spike-count > 0] / count neurons
+  ] [
+    report 0
+  ]
+end
+
+to-report mean-weight
+  ifelse any? synapses [
+    report mean [w] of synapses
+  ] [
+    report 0
+  ]
+end
+
+to-report weight-sd
+  ifelse (count synapses > 1) [
+    report standard-deviation [w] of synapses
+  ] [
+    report 0
+  ]
+end
+
+; ================
+; CORE 
+; ================
+
+to-report total-spikes
+  report count neurons with [ last-spike? ]
+end
+
+to-report output-spikes
+  if not is-list? Out-region [ report 0 ]
+  let outx item 0 Out-region
+  let outy item 1 Out-region
+  let outr item 2 Out-region
+  report count neurons with [ (distancexy outx outy) <= outr and last-spike? ]
+end
+
+to-report mean-E-reporter
+  report mean [eIon] of patches
+end
+
+to-report accuracy-reporter
+  ifelse (trial-count > 0) [
+    report 100 * correct-count / trial-count
+  ] [
+    report 0
+  ]
+end
+
+to-report plateau-metric
+  report count neurons with [ spike-age <= 50 ] / max list 1 count neurons * 100
+end
+
+; ====================
+; OTHERS PROCEDURES
+; ====================
+
+to periodic-stimulus-inhibitory
+  if not is-list? B-src [ stop ]
+  let sx item 0 B-src
+  let sy item 1 B-src
+  ask patch sx sy [
+    sprout-signals 1 [
+      setxy pxcor pycor
+      set A STIM-AMP
+      set signal_id 1
+      set radius RADIUS-SIGNAL
+      set vdx 0.3
+      set vdy 0.0
+      set size 0.7
+      set color blue
+    ]
+  ]
+end
+
+to load-csv-file [filename]
+  set eeg-data []
+  file-close-all
+  file-open filename
+  let header file-read-line
+  while [not file-at-end?] [
+    let line file-read-line
+    if line != "" [
+      let values csv:from-row line
+      set eeg-data lput values eeg-data
+    ]
+  ]
+  file-close
+  set EEG-index 0
+  user-message (word "Ucitano " length eeg-data " EEG redova.")
+end
+
+to eeg-stimulus
+  if not is-list? eeg-data [
+    user-message "EEG podaci nisu ucitani!"
+    stop
+  ]
+  let index EEG-index
+  if index >= length eeg-data [
+    user-message "EEG podaci su zavrseni."
+    stop
+  ]
+  let row item index eeg-data
+  let ampA item 0 row
+  let ampB item 1 row
+  if ampA > 0.1 [
+    ask patch (item 0 A-src) (item 1 A-src) [
+      sprout-signals 1 [
+        setxy pxcor pycor
+        set A ampA
+        set signal_id 0
+        set radius RADIUS-SIGNAL
+        set vdx 0.3
+        set vdy 0
+        set size 0.7
+        set color red
+      ]
+    ]
+  ]
+  if ampB > 0.1 [
+    ask patch (item 0 B-src) (item 1 B-src) [
+      sprout-signals 1 [
+        setxy pxcor pycor
+        set A ampB
+        set signal_id 1
+        set radius RADIUS-SIGNAL
+        set vdx -0.3
+        set vdy 0
+        set size 0.7
+        set color blue
+      ]
+    ]
+  ]
+  set EEG-index EEG-index + 1
+end
+
+to plot-mean-E
+  set-current-plot "Environment E"
+  set-current-plot-pen "mean-E"
+  let avgE mean [eIon] of patches
+  plot avgE
+end
+
+to update-synapses-visuals
+  ask synapses [
+    ifelse ([neuron-type] of end1 = "I") [
+      set color blue
+    ] [
+      set color white
+    ]
+    set thickness abs (w * 0.3)
+  ]
+end
+
+to log-to-csv
+  if not LOG-CSV? [ stop ]
+  if not file-exists? csv-filename [
+    file-open csv-filename
+    file-print "Tick;TotalSpike;OutputSpike;MeanE;Accuracy%;Event;Seed"
+    file-close
+  ]
+  let spikes count neurons with [last-spike?]
+  let out-spikes output-spikes
+  let meanE mean [eIon] of patches
+  let acc 0
+  if (trial-count > 0) [ set acc 100 * correct-count / trial-count ]
+  let meanErounded (round (meanE * 1000)) / 1000
+  let accRounded (round (acc * 10)) / 10
+  let row-data (word ticks ";" spikes ";" out-spikes ";" meanErounded ";" accRounded ";" current-event ";" SEED)
+  file-open csv-filename
+  file-print row-data
+  file-close
+end
+
+to write-csv-header
+  file-open csv-filename
+  file-print "Tick;TotalSpike;OutputSpike;MeanE;Accuracy%;Event;Seed"
+  file-close
+end
+]]></code>
+  <widgets>
+    <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="527" showTickCounter="true" patchSize="15.85" fontSize="10" wrappingAllowedY="true" width="527" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+    <slider x="10" step="0.01" y="90" max="1" display="ALPHA" height="33" min="0" direction="Horizontal" default="0.2" variable="ALPHA" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.05" y="128" max="3" display="THRESHOLD" height="33" min="0" direction="Horizontal" default="1.0" variable="THRESHOLD" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.1" y="166" max="1" display="V-RESET" height="33" min="-1" direction="Horizontal" default="0.0" variable="V-RESET" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="1" y="204" max="50" display="POp" height="33" min="1" direction="Horizontal" default="10.0" variable="POp" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.01" y="242" max="1" display="BETA" height="33" min="0.5" direction="Horizontal" default="0.95" variable="BETA" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.01" y="280" max="1" display="GAMMA" height="33" min="0" direction="Horizontal" default="0.05" variable="GAMMA" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.01" y="318" max="1" display="D" height="33" min="0" direction="Horizontal" default="0.0" variable="D" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.001" y="356" max="0.2" display="RHO" height="33" min="0" direction="Horizontal" default="0.01" variable="RHO" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.1" y="394" max="2" display="KAPPA-E" height="33" min="0" direction="Horizontal" default="0.0" variable="KAPPA-E" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="1" y="432" max="100" display="REPEAT-K" height="33" min="1" direction="Horizontal" default="10.0" variable="REPEAT-K" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="1" y="470" max="20" display="RADIUS-SIGNAL" height="33" min="1" direction="Horizontal" default="5.0" variable="RADIUS-SIGNAL" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.5" y="508" max="10" display="OUT-RANGE" height="33" min="1" direction="Horizontal" default="4.0" variable="OUT-RANGE" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="10" y="546" max="1000" display="N-NODES" height="33" min="10" direction="Horizontal" default="150.0" variable="N-NODES" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.05" y="584" max="1" display="INIT-NFUN-MEAN" height="33" min="0" direction="Horizontal" default="0.9" variable="INIT-NFUN-MEAN" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="0.01" y="622" max="0.5" display="INIT-NFUN-SD" height="33" min="0" direction="Horizontal" default="0.08" variable="INIT-NFUN-SD" width="190" sizeVersion="0"></slider>
+    <slider x="10" step="1" y="660" max="10" display="INIT-DEG-MEAN" height="33" min="0" direction="Horizontal" default="3.0" variable="INIT-DEG-MEAN" width="190" sizeVersion="0"></slider>
+    <button x="414" y="585" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="stimulus-chain" width="155" sizeVersion="0">stimulus-chain</button>
+    <button x="414" y="547" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="setup-chain-fixed-delay" width="155" sizeVersion="0">setup-chain-fixed-delay</button>
+    <button x="414" y="624" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="compute-chain-metrics" width="155" sizeVersion="0">compute-chain-metrics</button>
+    <slider x="206" step="0.5" y="549" max="5" display="INIT-DEG-SD" height="33" min="0" direction="Horizontal" default="1.0" variable="INIT-DEG-SD" width="190" sizeVersion="0"></slider>
+    <slider x="206" step="0.01" y="587" max="1" display="ETA" height="33" min="0" direction="Horizontal" default="0.4" variable="ETA" width="190" sizeVersion="0"></slider>
+    <slider x="206" step="1" y="625" max="20" display="LESION-RADIUS" height="33" min="0" direction="Horizontal" default="0.0" variable="LESION-RADIUS" width="190" sizeVersion="0"></slider>
+    <slider x="206" step="0.1" y="663" max="1" display="LESION-DROP" height="33" min="0" direction="Horizontal" default="0.5" variable="LESION-DROP" width="190" sizeVersion="0"></slider>
+    <slider x="749" step="0.1" y="124" max="5" display="STIM-AMP" height="33" min="0" direction="Horizontal" default="1.5" variable="STIM-AMP" width="130" sizeVersion="0"></slider>
+    <switch x="749" y="165" height="33" on="false" variable="EEG-MODE?" display="EEG-MODE?" width="130" sizeVersion="0"></switch>
+    <switch x="749" y="241" height="33" on="false" variable="LOG-CSV?" display="LOG-CSV?" width="130" sizeVersion="0"></switch>
+    <chooser x="749" y="282" height="45" variable="LOGIC-MODE" current="0" display="LOGIC-MODE" width="130" sizeVersion="0">
+      <choice type="string" value="off"></choice>
+      <choice type="string" value="AND"></choice>
+      <choice type="string" value="OR"></choice>
+      <choice type="string" value="XOR"></choice>
+    </chooser>
+    <input x="749" multiline="false" y="335" height="60" variable="csv-filename" type="string" width="130" sizeVersion="0"></input>
+    <slider x="749" step="1" y="10" max="10" display="FIXED-DELAY" height="33" min="1" direction="Horizontal" default="1.0" variable="FIXED-DELAY" width="131" sizeVersion="0"></slider>
+    <slider x="749" step="0.05" y="86" max="0.5" display="INHIB-FRAC" height="33" min="0" direction="Horizontal" default="0.2" variable="INHIB-FRAC" width="130" sizeVersion="0"></slider>
+    <slider x="749" step="0.1" y="48" max="5" display="FIXED-W" height="33" min="0.1" direction="Horizontal" default="1.5" variable="FIXED-W" width="131" sizeVersion="0"></slider>
+    <switch x="749" y="203" height="33" on="true" variable="PLOT?" display="PLOT?" width="130" sizeVersion="0"></switch>
+    <plot x="893" autoPlotX="true" yMax="10.0" autoPlotY="true" yAxis="Count" y="169" xMin="0.0" height="150" legend="false" xMax="100.0" yMin="0.0" xAxis="Tick" display="Spikes" width="290" sizeVersion="0">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="spikes" color="-2674135" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+    </plot>
+    <plot x="894" autoPlotX="true" yMax="100.0" autoPlotY="true" yAxis="%" y="8" xMin="0.0" height="150" legend="false" xMax="100.0" yMin="0.0" xAxis="Tick" display="Logic Accuracy" width="290" sizeVersion="0">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="accuracy" color="-13345367" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+    </plot>
+    <plot x="894" autoPlotX="true" yMax="1.0" autoPlotY="true" yAxis="Mean E" y="329" xMin="0.0" height="150" legend="false" xMax="100.0" yMin="0.0" xAxis="Tick" display="Environment E" width="290" sizeVersion="0">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="mean-E" color="-8630108" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+    </plot>
+    <button x="576" y="547" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="setup-decay-test" width="155" sizeVersion="0">setup-decay-test</button>
+    <button x="576" y="623" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="stimulate-single" width="155" sizeVersion="0">stimulate-single</button>
+    <button x="576" y="585" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="setup-single-neuron" width="155" sizeVersion="0">setup-single-neuron</button>
+    <slider x="414" step="50" y="664" max="1000" display="TRIAL-LENGTH" height="33" min="50" direction="Horizontal" default="200.0" variable="TRIAL-LENGTH" width="158" sizeVersion="0"></slider>
+    <slider x="576" step="1" y="663" max="999999" display="SEED" height="33" min="0" direction="Horizontal" default="25.0" variable="SEED" width="156" sizeVersion="0"></slider>
+    <button x="16" y="10" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="setup" width="80" sizeVersion="0">setup</button>
+    <button x="100" y="10" height="33" disableUntilTicks="false" forever="false" kind="Observer" display="step" width="80" sizeVersion="0">step</button>
+    <button x="16" y="47" height="33" disableUntilTicks="false" forever="true" kind="Observer" display="go" width="80" sizeVersion="0">step</button>
+  </widgets>
+  <info>## LANA VALIDATION EDITION v5
+
+Complete validation-ready model covering all 7 phases.
+
+### Interface Elements
+
+**Sliders:** ALPHA, THRESHOLD, V-RESET, POp, BETA, GAMMA, D, RHO, KAPPA-E, REPEAT-K, RADIUS-SIGNAL, OUT-RANGE, N-NODES, INIT-NFUN-MEAN, INIT-NFUN-SD, INIT-DEG-MEAN, INIT-DEG-SD, ETA, LESION-RADIUS, LESION-DROP, TRIAL-LENGTH, SEED, FIXED-DELAY, FIXED-W, INHIB-FRAC, STIM-AMP
+
+**Switches:** EEG-MODE?, PLOT?, LOG-CSV?
+
+**Chooser:** LOGIC-MODE
+
+**Input:** csv-filename
+
+**Buttons:** setup, step, go (forever), setup-chain-fixed-delay, stimulus-chain, compute-chain-metrics, setup-decay-test, setup-single-neuron, stimulate-single</info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true"></circle>
+    </shape>
+    <shape name="dot" rotatable="false" editableColorIndex="0">
+      <circle x="90" y="90" marked="true" color="-1920102913" diameter="120" filled="true"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+  <previewCommands>setup repeat 75 [ go ]</previewCommands>
+  <experiments>
+    <experiment name="M1_threshold_v3" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="200">
+      <setup>setup-single-neuron</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 200]]></exitCondition>
+      <metrics>
+        <metric>STIM-AMP</metric>
+        <metric>SEED</metric>
+        <metric>mean-firing-rate</metric>
+        <metric>global-min-isi</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="STIM-AMP" first="0.1" step="0.1" last="3"></steppedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="M2_refractory" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>POp</metric>
+        <metric>SEED</metric>
+        <metric>global-min-isi</metric>
+        <metric>mean-min-isi</metric>
+        <metric>mean-firing-rate</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="POp" first="5" step="5" last="25"></steppedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E1_weight_speed" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="200">
+      <setup>setup-chain-fixed-delay stimulus-chain</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[chain-complete? or ticks >= 200]]></exitCondition>
+      <metrics>
+        <metric>FIXED-W</metric>
+        <metric>SEED</metric>
+        <metric>chain-speed</metric>
+        <metric>chain-mean-delta</metric>
+        <metric>chain-complete?</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="FIXED-W" first="0.5" step="0.5" last="2.5"></steppedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="N1_ei_balance" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="true" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>INHIB-FRAC</metric>
+        <metric>SEED</metric>
+        <metric>mean-firing-rate</metric>
+        <metric>excitatory-firing-rate</metric>
+        <metric>inhibitory-firing-rate</metric>
+        <metric>synchrony-index</metric>
+        <metric>fano-factor</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="30"></steppedValueSet>
+        <steppedValueSet variable="INHIB-FRAC" first="0" step="0.1" last="0.4"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="N2_phase_transition" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>KAPPA-E</metric>
+        <metric>SEED</metric>
+        <metric>mean-firing-rate</metric>
+        <metric>mean-E-reporter</metric>
+        <metric>synchrony-index</metric>
+        <metric>spike-cv</metric>
+        <metric>is-oscillating?</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="KAPPA-E" first="0" step="0.2" last="2"></steppedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="GSA_sensitivity" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>KAPPA-E</metric>
+        <metric>RHO</metric>
+        <metric>THRESHOLD</metric>
+        <metric>SEED</metric>
+        <metric>final-total-spikes</metric>
+        <metric>active-neuron-fraction</metric>
+        <metric>mean-weight</metric>
+        <metric>weight-sd</metric>
+        <metric>mean-firing-rate</metric>
+        <metric>synchrony-index</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="KAPPA-E" first="0" step="0.5" last="2"></steppedValueSet>
+        <steppedValueSet variable="RHO" first="0.001" step="0.009" last="0.019"></steppedValueSet>
+        <steppedValueSet variable="THRESHOLD" first="0.5" step="0.5" last="1.5"></steppedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="R1_network_size" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>N-NODES</metric>
+        <metric>SEED</metric>
+        <metric>mean-firing-rate</metric>
+        <metric>synchrony-index</metric>
+        <metric>fano-factor</metric>
+        <metric>active-neuron-fraction</metric>
+        <metric>mean-weight</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="N-NODES" first="50" step="50" last="250"></steppedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="R2_plasticity" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="true" timeLimit="2000">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 2000]]></exitCondition>
+      <metrics>
+        <metric>ticks</metric>
+        <metric>SEED</metric>
+        <metric>mean-weight</metric>
+        <metric>weight-sd</metric>
+        <metric>mean-firing-rate</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20"></steppedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Vx_signal_attenuation" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>GAMMA</metric>
+        <metric>BETA</metric>
+        <metric>SEED</metric>
+        <metric>mean-firing-rate</metric>
+        <metric>active-neuron-fraction</metric>
+        <metric>final-total-spikes</metric>
+        <metric>synchrony-index</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.001"></value>
+          <value value="0.01"></value>
+          <value value="0.05"></value>
+          <value value="0.1"></value>
+          <value value="0.2"></value>
+          <value value="0.5"></value>
+          <value value="1"></value>
+          <value value="2"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.5"></value>
+          <value value="0.8"></value>
+          <value value="0.95"></value>
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20"></steppedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1.5"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="N-NODES">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="STIM-AMP">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Vx_diffusion_operator" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>clear-all
+set-default-shape neurons "default"
+set-default-shape signals "dot"
+set tick-dt 1
+set lesion-center (list 0 0)
+set current-event ""
+set EEG-index 0
+set trial-a-fired false
+set trial-b-fired false
+set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+set trial-pattern-idx 0
+set chain-mode? false
+set validation-mode "decay"
+set spike-history []
+set KAPPA-E 0
+set LOGIC-MODE "off"
+set chain-first-spike-times []
+ask patches [set eIon 5.0 set eIonNext 0 recolor-patch]
+set E0-initial 5.0
+set e-history (list (list 0 5.0))
+ask patch 0 0 [set eIon 100]
+reset-plots
+reset-ticks</setup>
+      <go>step</go>
+      <exitCondition><![CDATA[ticks >= 500]]></exitCondition>
+      <metrics>
+        <metric>D</metric>
+        <metric>SEED</metric>
+        <metric>final-mean-E</metric>
+        <metric>final-max-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="D">
+          <value value="0"></value>
+          <value value="0.01"></value>
+          <value value="0.03"></value>
+          <value value="0.05"></value>
+          <value value="0.1"></value>
+          <value value="0.15"></value>
+          <value value="0.2"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01"></value>
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10"></steppedValueSet>
+      </constants>
+    </experiment>
+  </experiments>
+</model>
