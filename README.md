@@ -4,7 +4,7 @@ This repository contains the **NetLogo LANA (Local Adaptive Neural Agents)** mod
 the full **verification & validation (V&V) test-suite outputs**, and lightweight **analysis scripts**
 supporting the manuscript:
 
-> *“LANA (Local Adaptive Neural Agents): A Reproducible Verification and Validation Suite for a Spatial Agent‑Based Spiking Network Model”*
+Systematic Verification and Validation of the LANA Agent-Based Spiking Neural Network ModelNetwork Model
 
 ## What is included
 
