@@ -1,0 +1,130 @@
+================================================================================
+SUPPLEMENTARY: Extended Output Summaries
+LANA v3.1 — All Experiments
+================================================================================
+
+This document provides extended output summaries for all experimental blocks
+reported in the manuscript. For each experiment, the summary includes the
+primary metrics, number of runs, and descriptive statistics. Raw per-run
+BehaviorSpace output data are available in the accompanying data/ directory.
+
+--------------------------------------------------------------------------------
+E0: Compact Internal Verification (520 runs total)
+--------------------------------------------------------------------------------
+E0a  Chain delay (FIXED-DELAY = 1–5, 20 seeds × 5 levels = 100 runs)
+     Result: Exact match between configured and measured delay (MAE = 0.0)
+     Speed follows expected 1/delay relationship.
+
+E0b  Environmental decay (50 seeds, 1000-tick timeseries)
+     Result: R² = 1.000 against analytical exponential decay.
+
+E0c  Threshold activation (STIM-AMP = 0.8–1.4, 20 seeds × 7 levels = 140 runs)
+     Result: Sharp silent-to-active transition near predicted threshold.
+
+E0d  Refractory enforcement (POp = 5–30, 20 seeds × 5 levels = 100 runs)
+     Result: Minimum ISI matches configured POp in all cases.
+
+E0e  Chain control (BASELINE? true/false, 20 seeds × 4 configs = 80 runs)
+     Result: Exact delay propagation preserved in both modes.
+
+See: Tab2_E0_MiniVV.txt, Fig2_MiniVV.png, data/E0a–E0e CSV files.
+
+--------------------------------------------------------------------------------
+E1: Full Model vs Neuron-Only Baseline (100 runs: 50 baseline + 50 full)
+--------------------------------------------------------------------------------
+Metric               Baseline (Mdn)    Full (Mdn)        Direction
+FR                   0.000             0.027             Full >> Baseline
+Active fraction      0.000             1.000             Full >> Baseline
+Fano factor          0.000             1.427             Full >> Baseline
+Spike CV             0.000             0.617             Full >> Baseline
+Final mean w         ~0.000            0.012             Full >> Baseline
+Mean E               0.000             1.937             Full >> Baseline
+
+All paired Wilcoxon tests: p < .001, rrb = 1.000 or near-maximal.
+See: Tab3_E1_Baseline_CI.txt, Fig3_E1_Baseline.png, data/E1-baseline CSV.
+
+--------------------------------------------------------------------------------
+E2: Propagation Benchmark (100 runs: 50 baseline + 50 full, localized stim)
+--------------------------------------------------------------------------------
+Metric               Baseline          Full (Mdn [IQR])
+t50                  NR                17.0 [13.0, 24.0]
+t90                  NR                31.5 [25.0, 39.0]
+WF speed             NR                See regression analysis
+
+NR = not reached within 1000 ticks.
+See: Tab4_E2_Propagation.txt, Fig4/Fig5, data/E2-propagation CSV.
+
+--------------------------------------------------------------------------------
+E3: S1 vs S2 Regime Comparison (100 runs: 50 S1 + 50 S2, matched seeds)
+--------------------------------------------------------------------------------
+Metric               S1 (Mdn)          S2 (Mdn)          Direction
+FR                   0.027             0.058             S2 > S1
+Active fraction      1.000             1.000             Equal
+Fano factor          1.427             1.549             S2 > S1
+Spike CV             0.617             0.310             S2 < S1 (more regular)
+Final mean w         0.012             0.046             S2 > S1
+Mean E               1.937             8.375             S2 >> S1
+t50                  16.0              9.0               S2 faster
+t90                  28.5              13.5              S2 faster
+
+See: Tab5_E3_Regime_CI.txt, Fig6/Fig7, data/E3-S1 and E3-S2 CSVs.
+
+--------------------------------------------------------------------------------
+E4: One-at-a-Time Sensitivity (340 runs: 20 seeds × 17 conditions)
+--------------------------------------------------------------------------------
+Parameter    %ΔFR (low)    %ΔFR (high)    Sensitivity rank
+β            −47.0%        +55.7%         1 (highest)
+θ            +10.7%        −8.4%          2
+POp          +9.8%         −6.9%          3
+κ_E          +5.4%         −5.8%          4
+ρ            −4.4%         +3.9%          5
+γ            −0.7%         +0.3%          6
+α            +0.8%         −1.7%          7
+D            −1.9%         +1.2%          8 (lowest)
+
+See: Tab6_E4_OAT.txt, Fig8_E4_Tornado.png, data/E4-* CSVs.
+
+--------------------------------------------------------------------------------
+E5: 2⁴ Factorial Design (320 runs: 16 combinations × 20 seeds)
+--------------------------------------------------------------------------------
+Factor         |Main effect|    Relative contribution
+κ_E            dominant         52.4%
+ρ              strong           26.4%
+θ              moderate         13.4%
+INHIB-FRAC     minor            7.9%
+
+Notable interaction: θ × κ_E (synergistic lowering of both increases FR
+more than expected from additive effects).
+
+See: Tab7_E5_Factorial.txt, Fig9_E5_Factorial.png, data/E5-factorial CSV.
+
+--------------------------------------------------------------------------------
+E6: N=300 Robustness (80 runs: 20 per condition)
+--------------------------------------------------------------------------------
+All qualitative conclusions from N=150 are preserved at N=300:
+  - Baseline remains silent; full model sustains activity.
+  - S2 shows approximately double the FR of S1.
+  - Fano factor difference between S1/S2 converges at larger N.
+
+See: TabS1_E6_Robustness.txt, data/E6a and E6b CSVs.
+
+--------------------------------------------------------------------------------
+E1b: Calibration Sweep (120 runs: 20 seeds × 6 STIM-AMP levels)
+--------------------------------------------------------------------------------
+STIM-AMP = 1.2 is the minimum level producing stimulation site activation.
+STIM-AMP = 1.3 used for the calibrated baseline comparison (E2b).
+
+See: Supplementary_Tables_S2_S3.docx (Table S2), data/E1b CSV.
+
+--------------------------------------------------------------------------------
+E2b: Calibrated Baseline Control (100 runs: 50 baseline + 50 full)
+--------------------------------------------------------------------------------
+At STIM-AMP = 1.3, calibrated baseline achieves ~98% source-region activation
+but only ~3.2% global recruitment. Full model achieves ~95.5% global recruitment.
+
+See: Supplementary_Tables_S2_S3.docx (Table S3), data/E2b CSV.
+
+================================================================================
+Total simulation runs across all experiments: ~1,780
+All data generated with LANA v3.1 on NetLogo 7.0.2.
+================================================================================

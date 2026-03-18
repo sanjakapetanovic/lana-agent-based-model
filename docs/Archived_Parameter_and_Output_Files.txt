@@ -1,0 +1,803 @@
+================================================================================
+SUPPLEMENTARY: Archived Parameter and Seed Configuration
+LANA v3.1 — Fixed Experimental Protocol
+================================================================================
+
+This file documents the complete parameter settings and seed lists for
+all BehaviorSpace experiments defined in LANA_v3.1_COMPLETE.nlogo.
+These configurations constitute the fixed experimental protocol referenced
+in the manuscript and the Data Availability Statement.
+
+--------------------------------------------------------------------------------
+Experiment: E0a-chain-delay
+--------------------------------------------------------------------------------
+  Setup: setup-chain
+stimulus-chain
+  Go: step
+  Time limit: 200 ticks
+  FIXED-DELAY: 1, 2, 3, 4, 5
+  FIXED-W: 1
+  THRESHOLD: 1
+  KAPPA-E: 0
+  D: 0
+  RHO: 1
+  ALPHA: 0.2
+  POp: 10
+  BASELINE?: false
+  PLOT?: false
+  SEED: 1 to 10 step 1
+  Metrics (5): chain-first-spike-times, chain-complete?, chain-mean-delta, chain-mae, chain-speed
+
+--------------------------------------------------------------------------------
+Experiment: E0b-decay
+--------------------------------------------------------------------------------
+  Setup: setup-decay-test
+  Go: step-decay-test
+  Time limit: 300 ticks
+  D: 0
+  KAPPA-E: 0
+  RHO: 0.01
+  PLOT?: false
+  SEED: 1 to 10 step 1
+  Metrics (1): mean [eIon] of patches
+
+--------------------------------------------------------------------------------
+Experiment: E0c-threshold
+--------------------------------------------------------------------------------
+  Setup: setup-single-neuron
+  Go: step-single-neuron
+  Time limit: 200 ticks
+  THRESHOLD: 1
+  ALPHA: 0.2
+  POp: 10
+  REPEAT-K: 10
+  V-RESET: 0
+  KAPPA-E: 0
+  D: 0
+  PLOT?: false
+  STIM-AMP: 0.1 to 3.0 step 0.1
+  SEED: 1 to 10 step 1
+  Metrics (2): report-FR, [spike-count] of neuron 0
+
+--------------------------------------------------------------------------------
+Experiment: E0d-refractory
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 500 ticks
+  POp: 5, 10, 15, 20, 25
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  SEED: 1 to 10 step 1
+  Metrics (2): report-global-min-ISI, report-FR
+
+--------------------------------------------------------------------------------
+Experiment: E0e-chain-control
+--------------------------------------------------------------------------------
+  Setup: setup-chain
+stimulus-chain
+  Go: step
+  Time limit: 200 ticks
+  FIXED-DELAY: 1, 2, 3
+  BASELINE?: true, false
+  FIXED-W: 1
+  THRESHOLD: 1
+  KAPPA-E: 0
+  D: 0
+  RHO: 1
+  ALPHA: 0.2
+  POp: 10
+  PLOT?: false
+  SEED: 1 to 10 step 1
+  Metrics (5): chain-first-spike-times, chain-complete?, chain-mean-delta, chain-mae, chain-speed
+
+--------------------------------------------------------------------------------
+Experiment: E1-baseline
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  BASELINE?: true, false
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E2-propagation
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  BASELINE?: true, false
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  LOCALIZED-STIM?: true
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (12): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E, report-t50
+           + 4 more
+
+--------------------------------------------------------------------------------
+Experiment: E3-S1
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (11): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E, report-t50
+           + 3 more
+
+--------------------------------------------------------------------------------
+Experiment: E3-S2
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 0.8
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.1
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.005
+  KAPPA-E: 0.2
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (11): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E, report-t50
+           + 3 more
+
+--------------------------------------------------------------------------------
+Experiment: E3-S1-ts
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (2): count neurons with [ last-spike? ], count neurons with [ spike-count &gt; 0 ]
+
+--------------------------------------------------------------------------------
+Experiment: E3-S2-ts
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 0.8
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.1
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.005
+  KAPPA-E: 0.2
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (2): count neurons with [ last-spike? ], count neurons with [ spike-count &gt; 0 ]
+
+--------------------------------------------------------------------------------
+Experiment: E4-nominal
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-KAPPA-E
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  KAPPA-E: 0.54, 0.66
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-THRESHOLD
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  THRESHOLD: 0.9, 1.1
+  N-NODES: 150
+  ALPHA: 0.2
+  KAPPA-E: 0.6
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-POp
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  POp: 9, 11
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  KAPPA-E: 0.6
+  V-RESET: 0
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-BETA
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  BETA: 0.9, 0.99
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  KAPPA-E: 0.6
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-GAMMA
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  GAMMA: 0.045, 0.055
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  KAPPA-E: 0.6
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  D: 0.15
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-D
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  D: 0.135, 0.165
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  KAPPA-E: 0.6
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-RHO
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  RHO: 0.009, 0.011
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  KAPPA-E: 0.6
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E4-ALPHA
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  ALPHA: 0.18, 0.22
+  N-NODES: 150
+  THRESHOLD: 1
+  KAPPA-E: 0.6
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E5-factorial
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  THRESHOLD: 1, 0.8
+  KAPPA-E: 0.6, 0.2
+  INHIB-FRAC: 0.2, 0.1
+  RHO: 0.01, 0.005
+  N-NODES: 150
+  ALPHA: 0.2
+  V-RESET: 0
+  POp: 10
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E6a-baseline-N300
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  BASELINE?: true, false
+  N-NODES: 300
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E6b-S1-N300
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 300
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E6b-S2-N300
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  N-NODES: 300
+  ALPHA: 0.2
+  THRESHOLD: 0.8
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.1
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.005
+  KAPPA-E: 0.2
+  REPEAT-K: 10
+  BASELINE?: false
+  LOCALIZED-STIM?: false
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (7): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E
+
+--------------------------------------------------------------------------------
+Experiment: E1b-calibration-sweep
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  STIM-AMP: 1, 1.1, 1.2, 1.3, 1.4, 1.5
+  BASELINE?: true
+  LOCALIZED-STIM?: true
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  STIM-RADIUS: 3
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 20 step 1
+  Metrics (13): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E, report-t50
+           + 5 more
+
+--------------------------------------------------------------------------------
+Experiment: E2b-calibrated-baseline
+--------------------------------------------------------------------------------
+  Setup: setup
+  Go: step
+  Time limit: 1000 ticks
+  BASELINE?: true, false
+  LOCALIZED-STIM?: true
+  N-NODES: 150
+  ALPHA: 0.2
+  THRESHOLD: 1
+  V-RESET: 0
+  POp: 10
+  INHIB-FRAC: 0.2
+  INIT-NFUN-MEAN: 0.9
+  INIT-NFUN-SD: 0.08
+  INIT-DEG-MEAN: 3
+  INIT-DEG-SD: 1
+  OUT-RANGE: 4
+  RADIUS-SIGNAL: 5
+  BETA: 0.95
+  GAMMA: 0.05
+  D: 0.15
+  RHO: 0.01
+  KAPPA-E: 0.6
+  REPEAT-K: 10
+  STIM-RADIUS: 3
+  STIM-AMP: 1.3
+  PLOT?: false
+  LOG-CSV?: false
+  SEED: 1 to 50 step 1
+  Metrics (13): report-FR, report-active-fraction, report-fano, report-spike-CV, report-mean-w, report-sd-w, report-mean-E, report-t50
+           + 5 more
+
+================================================================================
+SEED LISTS
+================================================================================
+
+Main experiments (E1, E2, E3-S1, E3-S2, E2b): Seeds 1–50
+Sensitivity experiments (E4-nominal, E4-* sweeps): Seeds 1–20
+Factorial experiment (E5): Seeds 1–20 × 16 factor combinations
+Robustness experiments (E6a, E6b-S1, E6b-S2): Seeds 1–20
+Calibration sweep (E1b): Seeds 1–20 × 6 STIM-AMP levels
+Verification experiments (E0a–E0e): Variable per test, see above
+
+All seeds are set via the SEED parameter in BehaviorSpace.
+NetLogo's random-seed command is called with this value in the setup procedure.
+
+================================================================================
+OUTPUT FILE MANIFEST
+================================================================================
+
+The data/ directory contains the raw BehaviorSpace spreadsheet-format CSV
+output for each experiment. File naming follows the convention:
+  LANA_v3.1_COMPLETE (1) <experiment-name>-spreadsheet.csv
+or:
+  LANA_v3_1_COMPLETE__2__ <experiment-name>-spreadsheet.csv
+
+Each CSV file contains:
+  - Header rows with NetLogo version, model file, experiment name, date
+  - World dimensions (min/max pxcor/pycor)
+  - Run number row (columns grouped by run)
+  - Parameter value rows (one row per varied/fixed parameter)
+  - Metric name row ([step] + metric names)
+  - Data rows (final-tick values for runMetricsEveryStep=false,
+    or per-tick values for runMetricsEveryStep=true)

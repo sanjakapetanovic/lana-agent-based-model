@@ -1,0 +1,128 @@
+================================================================================
+SUPPLEMENTARY: Implementation Notes for Non-Central Code Modes
+LANA v3.1 (NetLogo 7.0.2)
+================================================================================
+
+The LANA_v3.1_COMPLETE.nlogo file contains several procedures and interface
+switches that support verification, debugging, and exploratory analysis beyond
+the central experiments (E0–E6) reported in the manuscript. This document
+describes these non-central modes for reference and reproducibility.
+
+--------------------------------------------------------------------------------
+1. BASELINE? Switch
+--------------------------------------------------------------------------------
+When BASELINE? = true, the model operates as a neuron-only baseline:
+  - Signal agents are not created upon neuron firing.
+  - Environmental-field diffusion and signal-to-E deposition are skipped.
+  - Environmental feedback on effective neuronal functionality is disabled
+    (NFun_eff remains equal to baseline NFun).
+  - Synaptic delays, weights, and the neuronal update rule are preserved.
+  - External stimulation is delivered directly to membrane potential rather
+    than through a signal agent.
+
+This mode is used in experiments E1, E2, E6a, E1b, and E2b.
+
+--------------------------------------------------------------------------------
+2. LOCALIZED-STIM? Switch
+--------------------------------------------------------------------------------
+When LOCALIZED-STIM? = true, external stimulation is applied only to neurons
+within a spatial radius (STIM-RADIUS) around the network centre, rather than
+to all neurons. This mode is used in experiments E2, E2b, and the calibration
+sweep E1b. In full-model mode, localized stimulation creates a signal agent at
+the centre; in baseline mode, it directly excites local neuron membranes.
+
+--------------------------------------------------------------------------------
+3. LOG-CSV? Switch
+--------------------------------------------------------------------------------
+When LOG-CSV? = true, the model logs per-tick timeseries data and per-run
+summary statistics to CSV files via the finalize-run-logs procedure. This is
+primarily used for manual verification and for generating timeseries data
+outside BehaviorSpace. In BehaviorSpace experiments, output logging is handled
+by the experiment configuration rather than by this switch.
+
+--------------------------------------------------------------------------------
+4. Chain Verification Mode (setup-chain, stimulus-chain, compute-chain-metrics)
+--------------------------------------------------------------------------------
+These procedures configure a linear chain of neurons with fixed synaptic
+delays (FIXED-DELAY parameter) for operator-level verification of delayed
+propagation. The chain is constructed deterministically: neurons are placed
+at regular intervals and connected in sequence with uniform weights (FIXED-W)
+and the specified fixed delay. This mode is used exclusively in E0a and E0e.
+
+Key procedures:
+  - setup-chain: Creates the linear chain topology.
+  - stimulus-chain: Delivers a single input to the chain's first neuron.
+  - compute-chain-metrics: Measures inter-neuron first-spike delays and
+    compares them to the configured FIXED-DELAY value.
+
+--------------------------------------------------------------------------------
+5. Decay Test Mode (setup-decay-test, step-decay-test)
+--------------------------------------------------------------------------------
+This mode initializes the environmental field to a uniform nonzero value and
+then steps only the field-decay operator (no neurons, no signals). It is used
+in E0b to verify that the implemented decay matches the analytical exponential
+trajectory E(t) = E(0) · ρ^t. The procedure logs per-tick E values for
+comparison against the predicted curve.
+
+--------------------------------------------------------------------------------
+6. Single-Neuron Test Mode (setup-single-neuron, step-single-neuron)
+--------------------------------------------------------------------------------
+This mode creates an isolated single neuron receiving controlled external
+input. It is used in E0c (threshold verification) and E0d (refractory
+verification). The procedure supports configurable stimulus amplitude and
+records spike times, inter-spike intervals, and membrane trajectory.
+
+Key uses:
+  - E0c: STIM-AMP is swept to identify the threshold bifurcation point.
+  - E0d: POp is varied to verify that the minimum inter-spike interval
+    matches the configured refractory period.
+
+--------------------------------------------------------------------------------
+7. Lesion Mode (apply-lesion)
+--------------------------------------------------------------------------------
+The apply-lesion procedure removes all neurons and their associated synaptic
+links within a specified spatial radius around a target location. This mode
+is implemented in the codebase for exploratory analysis of network resilience
+but is not used in any of the experiments reported in the manuscript. It is
+retained for potential future use.
+
+--------------------------------------------------------------------------------
+8. CSV Import (load-csv-file)
+--------------------------------------------------------------------------------
+This procedure loads external CSV data into the model environment. It is
+available for potential use in data-driven initialization or parameter
+loading but is not used in the reported experiments, which rely exclusively
+on BehaviorSpace-configured parameter settings.
+
+--------------------------------------------------------------------------------
+9. stimulus-once
+--------------------------------------------------------------------------------
+This procedure delivers a single stimulus event (rather than periodic
+stimulation). It is available as an interface-level tool for manual
+exploration but is not used in the reported BehaviorSpace experiments.
+
+--------------------------------------------------------------------------------
+10. Timeseries Experiments (E3-S1-ts, E3-S2-ts)
+--------------------------------------------------------------------------------
+BehaviorSpace includes two timeseries variants of the S1 and S2 regime
+experiments (E3-S1-ts and E3-S2-ts) with runMetricsEveryStep = true. These
+produce per-tick output for all logged metrics and are intended for detailed
+temporal analysis and visualization. They are not reported as separate
+experiments in the manuscript but are included in the model file for
+reproducibility of timeseries figures.
+
+================================================================================
+Note: All non-central modes are accessed through the NetLogo interface switches
+or through BehaviorSpace experiment configurations within the .nlogo file. No
+separate configuration files are required.
+================================================================================
+
+--------------------------------------------------------------------------------
+11. Legacy Reporters and Exploratory Diagnostics
+--------------------------------------------------------------------------------
+Some legacy reporters and exploratory diagnostics remain in the code for
+transparency and backward compatibility, but they are not part of the central
+E0–E6 analyses reported in the manuscript. These include earlier metric
+formulations that were superseded in v3.1 (see CHANGELOG_v3.1.txt) and
+interface-level plotting procedures used during development. They do not
+affect BehaviorSpace experiment outputs.
