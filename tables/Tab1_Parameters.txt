@@ -1,0 +1,23 @@
+Table 1: Nominal Parameters (S1) and S2 Changes
+===========================================================================
+Parameter            Symbol   S1 Value     S2 Value     NetLogo        
+---------------------------------------------------------------------------
+N                    N        150          150          N-NODES        
+Leak                 α        0.2          0.2          ALPHA          
+Threshold            θ        1.0          0.8          ◄ THRESHOLD      
+Reset                V_reset  0            0            V-RESET        
+Refractory           POp      10           10           POp            
+Inhib frac           —        0.2          0.1          ◄ INHIB-FRAC     
+NFun mean            —        0.9          0.9          INIT-NFUN-MEAN 
+NFun SD              —        0.08         0.08         INIT-NFUN-SD   
+Out-degree mean      —        3            3            INIT-DEG-MEAN  
+Out-degree SD        —        1            1            INIT-DEG-SD    
+Signal speed         —        4            4            OUT-RANGE      
+Signal radius        —        5            5            RADIUS-SIGNAL  
+Signal decay         β        0.95         0.95         BETA           
+Spatial atten.       γ        0.05         0.05         GAMMA          
+E diffusion          D        0.15         0.15         D              
+E decay              ρ        0.01         0.005        ◄ RHO            
+E coupling           κ_E      0.6          0.2          ◄ KAPPA-E        
+Stim period          —        10           10           REPEAT-K       
+Plasticity μ,λ       —        0.01, 0.05   —            (hardcoded)    

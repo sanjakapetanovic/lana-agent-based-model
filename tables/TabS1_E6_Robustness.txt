@@ -1,0 +1,25 @@
+Table S1: N-Robustness N=300 (v3.1)
+================================================================================
+
+E6a: Baseline vs Full (N=300)
+Metric                    Baseline         Full            
+---------------------------------------------------------
+report-FR                 0.000000         0.031401        
+report-active-fraction    0.000000         1.000000        
+report-fano               0.000000         1.835915        
+report-spike-CV           0.000000         0.463116        
+report-mean-w             0.000043         0.014732        
+report-mean-E             0.000000         3.150208        
+
+E6b: S1 vs S2 (N=300)
+Metric                    S1 (N=300)       S2 (N=300)      
+---------------------------------------------------------
+report-FR                 0.031401         0.070451        
+report-active-fraction    1.000000         1.000000        
+report-fano               1.835915         1.895589        
+report-spike-CV           0.463116         0.310344        
+report-mean-w             0.014732         0.046357        
+report-mean-E             3.150208         14.007087       
+
+20 seeds per condition, 1000 ticks.
+Baseline FR=0 at N=300 (same as N=150).

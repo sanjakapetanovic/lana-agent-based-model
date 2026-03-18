@@ -1,0 +1,14 @@
+Table 2: Mini-V&V Verification Summary (v3.1)
+======================================================================
+Test                      Criterion                 Result          Pass?
+----------------------------------------------------------------------
+E0a chain delay           MAE = 0                   MAE=0.000       ✓
+E0b E-field decay         R² = 1.000                R²=1.000        ✓
+E0c threshold             Sharp transition          Onset=1.2       ✓
+E0d refractory            min ISI ≥ POp+1           All valid       ✓
+E0e chain control         full = baseline           All complete    ✓
+
+Notes:
+- All tests run on LANA v3.1 (NetLogo 7.0.2)
+- E0a: 50 runs (5 delays × 10 seeds), perfect MAE=0 for all
+- E0d: 50 runs (5 POp levels × 10 seeds), min-ISI = POp+1 for all

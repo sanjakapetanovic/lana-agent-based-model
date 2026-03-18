@@ -1,0 +1,13 @@
+Table 4: Propagation Metrics (E2) — v3.1
+==========================================================================================
+Metric                    Full med [IQR]                   Baseline med [IQR]              
+------------------------------------------------------------------------------------------
+report-t50                17.0000 [13.0000, 24.0000]       -1.0000 [-1.0000, -1.0000]      
+report-t90                31.5000 [25.0000, 39.0000]       -1.0000 [-1.0000, -1.0000]      
+report-wavefront-speed    0.0000 [0.0000, 10.0353]         0.0000 [0.0000, 0.0000]         
+report-active-fraction    1.0000 [0.9933, 1.0000]          0.0000 [0.0000, 0.0000]         
+report-FR                 0.0271 [0.0238, 0.0289]          0.0000 [0.0000, 0.0000]         
+
+N=150, LOCALIZED-STIM?=true, 50 seeds per condition, 1000 ticks.
+Wavefront speed computed via linear regression (time ~ distance, speed = 1/slope).
+Baseline: all propagation metrics = -1 (NR) or 0 (no activity).
