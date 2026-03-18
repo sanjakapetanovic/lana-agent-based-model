@@ -1,4 +1,4 @@
-# LANA V&V — Supplementary Material (Code, Data, and Reproducibility)
+# LANA — Supplementary Material (Code, Data, and Reproducibility)
 
 This repository contains the NetLogo **LANA (Local Adaptive Neural Agents)** model, the full verification & validation (V&V) test-suite outputs, and analysis scripts supporting the manuscript:
 
