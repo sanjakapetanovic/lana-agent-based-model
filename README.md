@@ -4,7 +4,7 @@ This repository contains the NetLogo LANA (Local Adaptive Neural Agents) model, 
 
 **A Rule-Based Agent-Based Neural Model with Explicit Signal Transport and Environment-Mediated Feedback: The LANA Model**
 
-Archived release (Zenodo DOI): [https://doi.org/10.5281/zenodo.19085845](https://doi.org/10.5281/zenodo.19085845)  
+Archived release (Zenodo DOI): [[https://doi.org/10.5281/zenodo.19085845](https://doi.org/10.5281/zenodo.19085845)  ](https://doi.org/10.5281/zenodo.19878413)
 Current release: **v3.1-R1** (April 2026)
 
 ---
