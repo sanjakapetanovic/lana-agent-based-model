@@ -397,6 +397,6 @@ MIT License. See `LICENSE`.
 
 If you use this model or data, please cite both the archived repository DOI and the associated manuscript. See `CITATION.cff` for a machine-readable citation.
 
-**Repository:** Kapetanović S, Dželalija M, Bijedić N, Gašpar D, Tipurić-Spužević S. (2026). Zenodo. [https://doi.org/10.5281/zenodo.19085845](https://doi.org/10.5281/zenodo.19085845)
+**Repository:** Kapetanović S, Dželalija M, Bijedić N, Gašpar D, Tipurić-Spužević S. (2026). Zenodo.(10.5281/zenodo.18771235)
 
 **Associated manuscript:** Kapetanović S, Dželalija M, Bijedić N, Gašpar D, Tipurić-Spužević S. (2026). A Rule-Based Agent-Based Neural Model with Explicit Signal Transport and Environment-Mediated Feedback: The LANA Model.
