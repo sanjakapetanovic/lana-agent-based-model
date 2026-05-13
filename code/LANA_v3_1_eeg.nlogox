@@ -1,0 +1,3255 @@
+<?xml version='1.0' encoding='utf-8'?>
+<model version="NetLogo 7.0.2" snapToGrid="false">
+  <code>; ============================================================
+; LANA MODEL v3.1 — NetLogo (Protocol v3.0 FINAL)
+; ============================================================
+; Based on v3.0 with targeted fixes:
+;   - t50/t90: corrected percentile indexing (ceiling-1)
+;   - Removed ad hoc Low-NFun E deposition term
+;   - Wavefront speed: proper linear regression (1/slope)
+;   - Added finalize-run-logs for BehaviorSpace final command
+; ============================================================
+
+breed [ neurons neuron ]
+breed [ signals signal ]
+directed-link-breed [ synapses synapse ]
+
+neurons-own [
+  V R
+  thr
+  NFun NFun-eff
+  p_op
+  DIn DOut
+  signal_id
+  last-spike?
+  neuron-type
+  spike-age
+  spike-count
+  first-spike-tick      ; Protocol v3.0: tick of first spike (-1 = never)
+  last-spike-tick
+  min-isi
+]
+
+signals-own [ A signal_id radius vdx vdy ]
+synapses-own [ w delay elig ]
+patches-own [ eIon eIonNext ]
+
+extensions [ csv ]
+
+globals [
+  eeg-data
+  EEG-index
+  tick-dt
+  lesion-center
+  A-src B-src
+  Out-region
+  trial-phase correct-count trial-count
+  chain-first-spike-times
+  current-event
+  trial-a-fired trial-b-fired
+  trial-pattern trial-pattern-idx
+  chain-mode?
+  validation-mode
+  E0-initial
+  e-history
+  spike-history
+
+  ;; Protocol v3.0 logging
+  run-spike-history
+  run-meanE-history
+  stim-center-x stim-center-y
+
+  ;; Legacy (no interface widget)
+  EEG-MODE?
+  LOGIC-MODE
+  TRIAL-LENGTH
+  LESION-RADIUS
+  LESION-DROP
+]
+
+; ============================================================
+; SETUP
+; ============================================================
+to setup
+  clear-all
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  set-default-shape neurons "default"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? false
+  set validation-mode "standard"
+  set e-history []
+  set spike-history []
+  set run-spike-history []
+  set run-meanE-history []
+  set E0-initial 0
+  set stim-center-x 0
+  set stim-center-y 0
+
+  ;; Legacy globals
+  set EEG-MODE? false
+  set LOGIC-MODE "off"
+  set TRIAL-LENGTH 200
+  set LESION-RADIUS 0
+  set LESION-DROP 0.5
+
+  ;; Safe slider defaults
+  if not is-number? ALPHA        [ set ALPHA 0.2 ]
+  if not is-number? V-RESET      [ set V-RESET 0 ]
+  if not is-number? D            [ set D 0.15 ]
+  if not is-number? RHO          [ set RHO 0.01 ]
+  if not is-number? KAPPA-E      [ set KAPPA-E 0.6 ]
+  if not is-number? BETA         [ set BETA 0.95 ]
+  if not is-number? GAMMA        [ set GAMMA 0.05 ]
+  if not is-number? REPEAT-K     [ set REPEAT-K 10 ]
+  if not is-number? THRESHOLD    [ set THRESHOLD 1.0 ]
+  if not is-number? POp          [ set POp 10 ]
+  if not is-number? RADIUS-SIGNAL [ set RADIUS-SIGNAL 5 ]
+  if not is-number? OUT-RANGE    [ set OUT-RANGE 4 ]
+  if not is-number? INIT-NFUN-MEAN [ set INIT-NFUN-MEAN 0.9 ]
+  if not is-number? INIT-NFUN-SD [ set INIT-NFUN-SD 0.08 ]
+  if not is-number? INIT-DEG-MEAN [ set INIT-DEG-MEAN 3 ]
+  if not is-number? INIT-DEG-SD  [ set INIT-DEG-SD 1 ]
+  if not is-number? N-NODES      [ set N-NODES 150 ]
+  if not is-number? INHIB-FRAC   [ set INHIB-FRAC 0.2 ]
+  if not is-number? STIM-AMP     [ set STIM-AMP 1.0 ]
+  if not is-number? STIM-RADIUS  [ set STIM-RADIUS 3 ]
+  if not is-number? FIXED-DELAY  [ set FIXED-DELAY 1 ]
+  if not is-number? FIXED-W      [ set FIXED-W 1.0 ]
+
+  set A-src (list (min-pxcor + 2) (min-pycor + 2))
+  set B-src (list (max-pxcor - 2) (min-pycor + 2))
+  set Out-region (list 0 (max-pycor - 2) 3)
+  set trial-phase 0
+  set correct-count 0
+  set trial-count 0
+  set chain-first-spike-times []
+
+  setup-patches
+  setup-neurons
+  reset-plots
+  reset-ticks
+end
+
+to setup-patches
+  ask patches [
+    set eIon 0
+    set eIonNext 0
+    recolor-patch
+  ]
+end
+
+to setup-neurons
+  create-neurons N-NODES [
+    setxy random-xcor random-ycor
+    set size 1.2
+    set color gray + 1
+    set NFun max list 0 (min list 1 (random-normal INIT-NFUN-MEAN INIT-NFUN-SD))
+    if inside-lesion? [ set NFun NFun * LESION-DROP ]
+    set NFun-eff NFun
+    set V 0
+    set R 0
+    set thr THRESHOLD
+    set p_op max list 1 round POp
+    set DIn max list 0 round random-normal INIT-DEG-MEAN INIT-DEG-SD
+    set DOut max list 0 round random-normal INIT-DEG-MEAN INIT-DEG-SD
+    set signal_id one-of [0 1 2]
+    set last-spike? false
+    set spike-age 1000
+    set spike-count 0
+    set first-spike-tick -1
+    set last-spike-tick -1000
+    set min-isi 100000
+    ifelse (random-float 1.0 &lt; INHIB-FRAC) [
+      set neuron-type "I"
+      set color blue
+    ] [
+      set neuron-type "E"
+      set color red
+    ]
+  ]
+  ask neurons [ create-outgoing-synapses DOut ]
+end
+
+to-report inside-lesion?
+  let cx item 0 lesion-center
+  let cy item 1 lesion-center
+  report (distancexy cx cy) &lt;= LESION-RADIUS
+end
+
+to create-outgoing-synapses [k]
+  if k &lt;= 0 [ stop ]
+  let candidates other neurons
+  if any? candidates [
+    let sorted-candidates sort-by [[z b] -&gt; (distance z) &lt; (distance b)] candidates
+    let n min list k length sorted-candidates
+    let targets sublist sorted-candidates 0 n
+    ask (turtle-set targets) [
+      create-synapse-from myself [
+        set w 1.0
+        set delay max list 1 round link-length
+        set elig -1
+      ]
+    ]
+  ]
+end
+
+; ============================================================
+; MAIN LOOP
+; ============================================================
+to step
+  set current-event ""
+
+  ;; Stimulation
+  if (validation-mode = "standard") [
+    ifelse LOCALIZED-STIM? [
+      if (ticks mod REPEAT-K = 0) [ localized-stimulus ]
+    ] [
+      if (ticks mod REPEAT-K = 0) [ periodic-stimulus ]
+    ]
+  ]
+
+  if (validation-mode = "single-neuron") and (ticks mod REPEAT-K = 0) [
+    ask neurons [ set V V + STIM-AMP ]
+    set current-event "m1-stimulus"
+  ]
+
+  ;; Core update sequence
+  ;; 1. Environment
+  diffuse-E
+  deposit-signal-to-E
+
+  ;; 2. Signals
+  ifelse BASELINE? [
+    ;; skip
+  ] [
+    update-signals
+  ]
+
+  ;; 3. NFun-eff
+  update-nfun-eff
+
+  ;; 4. Neurons
+  neurons-update
+
+  ;; 5. Plasticity
+  if validation-mode = "standard" [
+    update-plasticity
+  ]
+
+  ;; 6. Visuals
+  update-synapses-visuals
+  recolor-neurons
+
+  ;; 7. Logging
+  let spikes-this-tick count neurons with [ last-spike? ]
+  let meanE-this-tick mean [eIon] of patches
+  set run-spike-history lput spikes-this-tick run-spike-history
+  set run-meanE-history lput meanE-this-tick run-meanE-history
+  set spike-history lput spikes-this-tick spike-history
+
+  if validation-mode = "decay" [
+    set e-history lput (list ticks meanE-this-tick) e-history
+  ]
+
+  if PLOT? [ do-update-plots ]
+  tick
+
+  if LOG-CSV? [ log-timeseries-row ]
+end
+
+; ============================================================
+; ENVIRONMENT
+; ============================================================
+to diffuse-E
+  if BASELINE? [ stop ]
+  let EMAX 1e3
+  ask patches [
+    let lap (sum [eIon] of neighbors4 - 4 * eIon)
+    set eIonNext eIon + D * lap - RHO * eIon
+    if not is-number? eIonNext [ set eIonNext 0 ]
+    set eIonNext max list (0 - EMAX) (min list EMAX eIonNext)
+  ]
+  ask patches [
+    set eIon eIonNext
+    recolor-patch
+  ]
+end
+
+to deposit-signal-to-E
+  if BASELINE? [ stop ]
+  ask patches with [ any? signals-here ] [
+    set eIon eIon + sum [A] of signals-here
+  ]
+end
+
+; ============================================================
+; SIGNALS
+; ============================================================
+to update-signals
+  ask signals [
+    set A A * BETA
+    set xcor xcor + vdx
+    set ycor ycor + vdy
+    if (abs A &lt; 1e-4) [ die ]
+  ]
+end
+
+; ============================================================
+; NEURONS
+; ============================================================
+to update-nfun-eff
+  ask neurons [
+    ifelse BASELINE? [
+      set NFun-eff NFun
+    ] [
+      let Ebar mean [eIon] of patches in-radius 1
+      set NFun-eff NFun / (1 + KAPPA-E * Ebar)
+    ]
+  ]
+end
+
+to neurons-update
+  ;; (0) Reset flags
+  ask neurons [
+    set last-spike? false
+    if spike-age &lt; 100000 [ set spike-age spike-age + 1 ]
+  ]
+
+  ;; (1) Synaptic delay countdown
+  ask synapses [
+    if elig &gt;= 0 [ set elig elig - 1 ]
+  ]
+
+  ;; (2) Main integration + spiking
+  ask neurons [
+    ifelse (R &gt; 0) [
+      set R R - 1
+      set V V-RESET
+    ] [
+      let lin 0
+
+      ;; Signal-mediated coupling (only if NOT baseline)
+      if not BASELINE? [
+        let myid signal_id
+        let local-signals signals in-radius RADIUS-SIGNAL
+        ask local-signals with [ signal_id = myid ] [
+          let p distance myself
+          set lin lin + (A * exp (- GAMMA * p))
+        ]
+      ]
+
+      ;; Synaptic input (always active)
+      ask my-in-synapses [
+        if (elig = 0) [
+          let pre-neuron end1
+          ifelse ([neuron-type] of pre-neuron = "I") [
+            set lin lin - (w * [NFun-eff] of pre-neuron)
+          ] [
+            set lin lin + (w * [NFun-eff] of pre-neuron)
+          ]
+        ]
+      ]
+
+      ;; Membrane update
+      set V (1 - ALPHA * tick-dt) * V + tick-dt * (NFun-eff * lin)
+
+      ;; Spike check
+      if (V &gt;= thr) [
+        set last-spike? true
+        set spike-age 0
+        set spike-count spike-count + 1
+
+        ;; First spike tracking (Protocol v3.0)
+        if first-spike-tick = -1 [
+          set first-spike-tick ticks
+        ]
+
+        ;; ISI tracking
+        if last-spike-tick &gt;= 0 [
+          let isi (ticks - last-spike-tick)
+          if isi &lt; min-isi [ set min-isi isi ]
+        ]
+        set last-spike-tick ticks
+
+        ;; Reset
+        set V V-RESET
+        set R p_op
+
+        ;; Chain metric
+        if is-list? chain-first-spike-times [
+          if length chain-first-spike-times &gt; 0 [
+            let idx who
+            if (idx &lt; length chain-first-spike-times) [
+              if (item idx chain-first-spike-times = -1) [
+                set chain-first-spike-times replace-item idx chain-first-spike-times ticks
+              ]
+            ]
+          ]
+        ]
+
+        ;; Trigger outgoing synapses
+        ask my-out-synapses [
+          set elig delay
+        ]
+
+        ;; Emit signal (only if NOT baseline)
+        if not BASELINE? [
+          let h random-float 360
+          hatch-signals 1 [
+            ifelse ([neuron-type] of myself = "I") [
+              set A (- [NFun-eff] of myself)
+            ] [
+              set A [NFun-eff] of myself
+            ]
+            set signal_id [signal_id] of myself
+            set radius RADIUS-SIGNAL
+            set vdx cos h * OUT-RANGE / 5
+            set vdy sin h * OUT-RANGE / 5
+            set size 0.6
+            ifelse ([neuron-type] of myself = "I") [ set color blue ] [ set color red ]
+          ]
+        ]
+      ]
+    ]
+
+  ]
+end
+
+; ============================================================
+; PLASTICITY
+; ============================================================
+to update-plasticity
+  let mu 0.01
+  let lambda 0.05
+  ask synapses [
+    set w (1 - mu) * w
+    if ([last-spike?] of end1) and ([last-spike?] of end2) [
+      set w w + lambda
+    ]
+    set w max list 0 (min list 5 w)
+  ]
+end
+
+; ============================================================
+; STIMULATION
+; ============================================================
+to periodic-stimulus
+  if not is-list? A-src [ stop ]
+  let sx item 0 A-src
+  let sy item 1 A-src
+  ifelse BASELINE? [
+    ask neurons with [ distancexy sx sy &lt;= STIM-RADIUS ] [
+      set V V + STIM-AMP
+    ]
+  ] [
+    ask patch sx sy [
+      sprout-signals 1 [
+        setxy pxcor pycor
+        set A STIM-AMP
+        set signal_id 0
+        set radius RADIUS-SIGNAL
+        set vdx 0.3
+        set vdy 0.0
+        set size 0.7
+        set color red
+      ]
+    ]
+  ]
+end
+
+to localized-stimulus
+  set stim-center-x 0
+  set stim-center-y 0
+  ifelse BASELINE? [
+    ask neurons with [ distancexy stim-center-x stim-center-y &lt;= STIM-RADIUS ] [
+      set V V + STIM-AMP
+    ]
+  ] [
+    ask patch stim-center-x stim-center-y [
+      sprout-signals 1 [
+        setxy pxcor pycor
+        set A STIM-AMP
+        set signal_id 0
+        set radius RADIUS-SIGNAL
+        set vdx 0.3
+        set vdy 0.0
+        set size 0.7
+        set color red
+      ]
+    ]
+  ]
+end
+
+to stimulus-once
+  periodic-stimulus
+end
+
+; ============================================================
+; LESION
+; ============================================================
+to apply-lesion [x y]
+  set lesion-center (list x y)
+  ask neurons with [ (distancexy x y) &lt;= LESION-RADIUS ] [
+    set NFun NFun * LESION-DROP
+    set color gray
+    set size size * 0.7
+  ]
+end
+
+; ============================================================
+; CHAIN TEST (E0-a, E0-e) — from REVISED with fixes
+; ============================================================
+to setup-chain
+  clear-all
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  set-default-shape neurons "circle"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? true
+  set validation-mode "chain"
+  set e-history []
+  set spike-history []
+  set run-spike-history []
+  set run-meanE-history []
+  set E0-initial 0
+  set stim-center-x 0
+  set stim-center-y 0
+
+  ;; Legacy globals
+  set EEG-MODE? false
+  set LOGIC-MODE "off"
+  set TRIAL-LENGTH 200
+  set LESION-RADIUS 0
+  set LESION-DROP 0.5
+
+  if not is-number? FIXED-DELAY [ set FIXED-DELAY 1 ]
+  if not is-number? FIXED-W     [ set FIXED-W 1.5 ]
+
+  ;; Chain isolation
+  set KAPPA-E 0
+  set D 0
+  set RHO 1
+
+  set A-src (list (min-pxcor + 2) 0)
+  set B-src (list (max-pxcor - 2) 0)
+  set Out-region (list 0 0 2)
+
+  create-neurons 11 [
+    let i who
+    setxy (i * 2 - 10) 0
+    set size 2
+    set color (gray + 1)
+    set V 0
+    set R 0
+    set thr THRESHOLD
+    set NFun 1
+    set NFun-eff 1
+    set p_op max list 1 round POp
+    set DIn 0
+    set DOut 1
+    set signal_id (who + 100)  ;; UNIQUE per neuron — prevents cross-talk
+    set last-spike? false
+    set spike-age 1000
+    set spike-count 0
+    set first-spike-tick -1
+    set last-spike-tick -1000
+    set min-isi 100000
+    set neuron-type "E"
+  ]
+
+  ask neurons with [ who &lt; max [who] of neurons ] [
+    let nxt one-of neurons with [ who = [who] of myself + 1 ]
+    if nxt != nobody [
+      create-synapse-to nxt [
+        set w FIXED-W
+        set delay FIXED-DELAY
+        set elig -1
+      ]
+    ]
+  ]
+
+  set chain-first-spike-times n-values 11 [ -1 ]
+  reset-plots
+  reset-ticks
+end
+
+to stimulus-chain
+  if any? neurons [
+    ask neuron 0 [
+      ;; Guaranteed spike: V above effective threshold after leak
+      set V (thr / (1 - ALPHA * tick-dt)) + 0.0001
+      set R 0
+    ]
+  ]
+end
+
+to compute-chain-metrics
+  if not is-list? chain-first-spike-times [
+    show "ERROR: run setup-chain first."
+    stop
+  ]
+  let times chain-first-spike-times
+  if member? -1 times [
+    show (word "Chain incomplete. Times: " times)
+    stop
+  ]
+  let T0 item 0 times
+  let Tlast item (length times - 1) times
+  let speed 0
+  if (Tlast &gt; T0) [
+    set speed ((length times - 1) / (Tlast - T0))
+  ]
+  let delays []
+  let i 1
+  while [ i &lt; length times ] [
+    set delays lput ((item i times) - (item (i - 1) times)) delays
+    set i i + 1
+  ]
+  let errors map [ c -&gt; abs (c - FIXED-DELAY) ] delays
+  let mae mean errors
+  show (word "=== CHAIN METRICS ===")
+  show (word "FIXED-DELAY=" FIXED-DELAY " FIXED-W=" FIXED-W " SEED=" SEED)
+  show (word "First-spike times: " times)
+  show (word "Delays: " delays)
+  show (word "Speed: " speed " neurons/tick")
+  show (word "Mean delay: " (mean delays))
+  show (word "MAE: " mae)
+  show (word "========================")
+end
+
+;; Chain reporters for BehaviorSpace
+to-report chain-complete?
+  if not is-list? chain-first-spike-times [ report false ]
+  report not member? -1 chain-first-spike-times
+end
+
+to-report chain-mean-delta
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  let delays []
+  let i 1
+  while [ i &lt; length times ] [
+    set delays lput ((item i times) - (item (i - 1) times)) delays
+    set i i + 1
+  ]
+  report mean delays
+end
+
+to-report chain-mae
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  let delays []
+  let i 1
+  while [ i &lt; length times ] [
+    set delays lput ((item i times) - (item (i - 1) times)) delays
+    set i i + 1
+  ]
+  report mean (map [ c -&gt; abs (c - FIXED-DELAY) ] delays)
+end
+
+to-report chain-speed
+  if not chain-complete? [ report -1 ]
+  let times chain-first-spike-times
+  let T0 item 0 times
+  let Tlast item (length times - 1) times
+  if Tlast = T0 [ report -1 ]
+  report (length times - 1) / (Tlast - T0)
+end
+
+; ============================================================
+; DECAY TEST (E0-b)
+; ============================================================
+to setup-decay-test
+  clear-all
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  set-default-shape neurons "default"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? false
+  set validation-mode "decay"
+  set spike-history []
+  set run-spike-history []
+  set run-meanE-history []
+  set stim-center-x 0
+  set stim-center-y 0
+
+  ;; Legacy globals
+  set EEG-MODE? false
+  set LOGIC-MODE "off"
+  set TRIAL-LENGTH 200
+  set LESION-RADIUS 0
+  set LESION-DROP 0.5
+
+  if not is-number? RHO [ set RHO 0.01 ]
+  if RHO &gt;= 1 [ set RHO 0.01 ]
+  set D 0
+  set KAPPA-E 0
+
+  ask patches [
+    set eIon 5.0
+    set eIonNext 0
+    recolor-patch
+  ]
+  set E0-initial 5.0
+  set e-history (list (list 0 5.0))
+  set chain-first-spike-times []
+
+  reset-ticks
+end
+
+to step-decay-test
+  ask patches [
+    set eIon eIon - RHO * eIon
+  ]
+  set run-meanE-history lput (mean [eIon] of patches) run-meanE-history
+  set e-history lput (list ticks (mean [eIon] of patches)) e-history
+  tick
+end
+
+; ============================================================
+; SINGLE NEURON TEST (E0-c)
+; ============================================================
+to setup-single-neuron
+  clear-all
+
+  if not is-number? SEED [ set SEED 0 ]
+  if (SEED = 0) [ set SEED new-seed ]
+  random-seed SEED
+
+  set-default-shape neurons "circle"
+  set-default-shape signals "dot"
+  set tick-dt 1
+  set lesion-center (list 0 0)
+  set current-event ""
+  set EEG-index 0
+  set trial-a-fired false
+  set trial-b-fired false
+  set trial-pattern (list (list 0 0) (list 0 1) (list 1 0) (list 1 1))
+  set trial-pattern-idx 0
+  set chain-mode? false
+  set validation-mode "single-neuron"
+  set e-history []
+  set spike-history []
+  set run-spike-history []
+  set run-meanE-history []
+  set E0-initial 0
+  set stim-center-x 0
+  set stim-center-y 0
+
+  ;; Legacy globals
+  set EEG-MODE? false
+  set LOGIC-MODE "off"
+  set TRIAL-LENGTH 200
+  set LESION-RADIUS 0
+  set LESION-DROP 0.5
+
+  if not is-number? STIM-AMP [ set STIM-AMP 1.0 ]
+  set KAPPA-E 0
+  set D 0
+  if not is-number? RHO [ set RHO 0.01 ]
+  if RHO &gt;= 1 [ set RHO 0.01 ]
+
+  set A-src (list 0 0)
+  set B-src (list 0 0)
+  set Out-region (list 0 0 2)
+  set chain-first-spike-times []
+
+  create-neurons 1 [
+    setxy 0 0
+    set size 3
+    set V 0
+    set R 0
+    set thr THRESHOLD
+    set NFun 1
+    set NFun-eff 1
+    set p_op max list 1 round POp
+    set DIn 0
+    set DOut 0
+    set signal_id 0
+    set last-spike? false
+    set spike-age 1000
+    set spike-count 0
+    set first-spike-tick -1
+    set last-spike-tick -1000
+    set min-isi 100000
+    set neuron-type "E"
+    set color red
+  ]
+
+  setup-patches
+  reset-plots
+  reset-ticks
+end
+
+to step-single-neuron
+  if (ticks mod REPEAT-K = 0) and (is-number? STIM-AMP) [
+    ask neurons [ set V V + STIM-AMP ]
+  ]
+  ask neurons [
+    set last-spike? false
+    ifelse (R &gt; 0) [
+      set R R - 1
+      set V V-RESET
+    ] [
+      set V (1 - ALPHA * tick-dt) * V
+      if (V &gt;= thr) [
+        set last-spike? true
+        set spike-count spike-count + 1
+        if first-spike-tick = -1 [ set first-spike-tick ticks ]
+        if last-spike-tick &gt;= 0 [
+          let isi (ticks - last-spike-tick)
+          if isi &lt; min-isi [ set min-isi isi ]
+        ]
+        set last-spike-tick ticks
+        set V V-RESET
+        set R p_op
+      ]
+    ]
+  ]
+  set run-spike-history lput (count neurons with [last-spike?]) run-spike-history
+  tick
+end
+
+; ============================================================
+; REPORTERS — Protocol v3.0
+; ============================================================
+
+to-report report-FR
+  if ticks = 0 [ report 0 ]
+  report sum [spike-count] of neurons / (count neurons * ticks)
+end
+
+to-report report-active-fraction
+  report (count neurons with [spike-count &gt; 0]) / (count neurons)
+end
+
+to-report report-fano
+  let window-size min list 500 (length run-spike-history)
+  if window-size &lt; 2 [ report 0 ]
+  let tail sublist run-spike-history (length run-spike-history - window-size) (length run-spike-history)
+  let m mean tail
+  if m = 0 [ report 0 ]
+  report variance tail / m
+end
+
+to-report report-spike-CV
+  let window-size min list 500 (length run-spike-history)
+  if window-size &lt; 2 [ report 0 ]
+  let tail sublist run-spike-history (length run-spike-history - window-size) (length run-spike-history)
+  let m mean tail
+  if m = 0 [ report 0 ]
+  report (standard-deviation tail) / m
+end
+
+to-report report-mean-E
+  report mean [eIon] of patches
+end
+
+to-report report-mean-w
+  ifelse any? synapses [ report mean [w] of synapses ] [ report 0 ]
+end
+
+to-report report-sd-w
+  ifelse (count synapses &gt; 1) [ report standard-deviation [w] of synapses ] [ report 0 ]
+end
+
+to-report report-t50
+  let active-neurons neurons with [ first-spike-tick &gt;= 0 ]
+  let F count active-neurons
+  if F &lt; 2 [ report -1 ]
+  let sorted-times sort [first-spike-tick] of active-neurons
+  let idx max list 0 (ceiling (F * 0.5) - 1)
+  report item idx sorted-times
+end
+
+to-report report-t90
+  let active-neurons neurons with [ first-spike-tick &gt;= 0 ]
+  let F count active-neurons
+  if F &lt; 2 [ report -1 ]
+  let sorted-times sort [first-spike-tick] of active-neurons
+  let idx max list 0 (ceiling (F * 0.9) - 1)
+  report item idx sorted-times
+end
+
+to-report report-initial-slope
+  if length run-spike-history &lt; 15 [ report 0 ]
+  let s4 item 4 run-spike-history
+  let s14 item 14 run-spike-history
+  report (s14 - s4) / 10
+end
+
+to-report report-wavefront-speed
+  let active-neurons neurons with [ first-spike-tick &gt;= 0 ]
+  if count active-neurons &lt; 5 [ report 0 ]
+  let dists [distancexy stim-center-x stim-center-y] of active-neurons
+  let times [first-spike-tick] of active-neurons
+  let n length dists
+  let mean-d mean dists
+  let mean-t mean times
+  ;; Linear regression: time = a + b * distance =&gt; speed = 1/b
+  let ss-dd 0
+  let ss-dt 0
+  let i 0
+  while [ i &lt; n ] [
+    let di (item i dists) - mean-d
+    let ti (item i times) - mean-t
+    set ss-dd ss-dd + di * di
+    set ss-dt ss-dt + di * ti
+    set i i + 1
+  ]
+  if ss-dd = 0 [ report 0 ]
+  let slope ss-dt / ss-dd   ;; slope of time ~ distance
+  if slope &lt;= 0 [ report 0 ]
+  report 1 / slope           ;; speed = distance / time
+end
+
+to-report report-global-min-ISI
+  let neurons-with-isi neurons with [ min-isi &lt; 100000 ]
+  ifelse any? neurons-with-isi [
+    report min [min-isi] of neurons-with-isi
+  ] [
+    report -1
+  ]
+end
+
+;; Extra reporters from REVISED
+to-report mean-firing-rate
+  report report-FR
+end
+
+to-report synchrony-index
+  if length spike-history &lt; 10 [ report 0 ]
+  let m mean spike-history
+  if m = 0 [ report 0 ]
+  report standard-deviation spike-history / m
+end
+
+to-report fano-factor
+  report report-fano
+end
+
+; ============================================================
+; CSV LOGGING — Protocol v3.0
+; ============================================================
+to log-timeseries-row
+  let fname (word EXP-PREFIX "_timeseries.csv")
+  if ticks = 1 [
+    if file-exists? fname [ file-delete fname ]
+    file-open fname
+    file-print "seed,condition,tick,spike_count,mean_E,active_neurons_this_tick"
+    file-close
+  ]
+  let spk last run-spike-history
+  let mE last run-meanE-history
+  let active-now count neurons with [ last-spike? ]
+  file-open fname
+  file-print (word SEED "," CONDITION-LABEL "," ticks "," spk "," precision mE 6 "," active-now)
+  file-close
+end
+
+to log-neurons-csv
+  let fname (word EXP-PREFIX "_neurons.csv")
+  if file-exists? fname and ticks &lt;= 1 [ file-delete fname ]
+  let write-header? (not file-exists? fname)
+  file-open fname
+  if write-header? [
+    file-print "seed,condition,neuron_id,x,y,neuron_type,total_spikes,first_spike_tick,min_ISI"
+  ]
+  ask neurons [
+    let fst ifelse-value (first-spike-tick = -1) [ "NA" ] [ first-spike-tick ]
+    let misi ifelse-value (min-isi &gt;= 100000) [ "NA" ] [ min-isi ]
+    file-print (word SEED "," CONDITION-LABEL "," who "," precision xcor 3 "," precision ycor 3 ","
+      neuron-type "," spike-count "," fst "," misi)
+  ]
+  file-close
+end
+
+to log-summary-csv
+  let fname (word EXP-PREFIX "_summary.csv")
+  let write-header? (not file-exists? fname)
+  file-open fname
+  if write-header? [
+    file-print "seed,condition,FR,active_frac,fano,spike_CV,mean_w,sd_w,mean_E,t50,t90,initial_slope,wavefront_speed"
+  ]
+  file-print (word
+    SEED "," CONDITION-LABEL ","
+    precision report-FR 6 ","
+    precision report-active-fraction 4 ","
+    precision report-fano 4 ","
+    precision report-spike-CV 4 ","
+    precision report-mean-w 6 ","
+    precision report-sd-w 6 ","
+    precision report-mean-E 6 ","
+    report-t50 ","
+    report-t90 ","
+    precision report-initial-slope 4 ","
+    precision report-wavefront-speed 4
+  )
+  file-close
+end
+
+; ============================================================
+; VISUALS
+; ============================================================
+to recolor-patch
+  let ESHOW 5
+  set pcolor scale-color violet eIon 0 ESHOW
+end
+
+to recolor-neurons
+  ask neurons [
+    ifelse last-spike? [
+      set color orange
+    ] [
+      ifelse (neuron-type = "I") [ set color blue ] [ set color red ]
+    ]
+  ]
+end
+
+to update-synapses-visuals
+  ask synapses [
+    ifelse ([neuron-type] of end1 = "I") [ set color blue ] [ set color white ]
+    set thickness abs (w * 0.3)
+  ]
+end
+
+to reset-plots
+  if PLOT? [
+    set-current-plot "Spikes" clear-plot
+    set-current-plot "Environment E" clear-plot
+  ]
+end
+
+to do-update-plots
+  set-current-plot "Spikes"
+  set-current-plot-pen "spikes"
+  plot count neurons with [ last-spike? ]
+
+  set-current-plot "Environment E"
+  set-current-plot-pen "mean-E"
+  plot mean [eIon] of patches
+end
+
+; ============================================================
+; EEG MODE (legacy, kept for future use)
+; ============================================================
+to load-csv-file [filename]
+  set eeg-data []
+  file-close-all
+  file-open filename
+  let header file-read-line
+  while [ not file-at-end? ] [
+    let line file-read-line
+    if line != "" [
+      let values csv:from-row line
+      set eeg-data lput values eeg-data
+    ]
+  ]
+  file-close
+  set EEG-index 0
+  user-message (word "Loaded " length eeg-data " EEG rows.")
+end
+
+; ============================================================
+; FINALIZE — called as BehaviorSpace final command
+; ============================================================
+to finalize-run-logs
+  if LOG-CSV? [
+    log-summary-csv
+    log-neurons-csv
+  ]
+end
+
+
+; ============================================================
+; TICK-BY-TICK REPORTERS FOR EEG COMPARISON (Dissertation)
+; ============================================================
+to-report report-spikes-this-tick
+  report count neurons with [ last-spike? ]
+end
+
+to-report report-meanE-this-tick
+  report mean [eIon] of patches
+end
+
+to-report report-active-this-tick
+  report count neurons with [ last-spike? ] / count neurons
+end
+
+; ============================================================
+; END OF MODEL
+; ============================================================
+</code>
+  <widgets>
+    <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="413" showTickCounter="true" patchSize="12.33" fontSize="10" wrappingAllowedY="true" width="413" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16" />
+    <button x="10" y="10" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="80" display="Setup">setup</button>
+    <button x="95" y="10" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="80" display="Step">step</button>
+    <button x="10" y="55" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="80" display="Go">step</button>
+    <button x="95" y="55" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="110" display="Setup Chain">setup-chain</button>
+    <button x="10" y="100" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="110" display="Stim Chain">stimulus-chain</button>
+    <button x="125" y="100" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="80" display="Chain Metrics">compute-chain-metrics</button>
+    <button x="10" y="145" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="95" display="Log Neurons">log-neurons-csv</button>
+    <button x="110" y="145" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="95" display="Log Summary">log-summary-csv</button>
+    <slider x="640" step="10" y="10" max="500" width="208" display="N-NODES" height="50" min="10" direction="Horizontal" default="150.0" variable="N-NODES" />
+    <slider x="640" step="0.01" y="65" max="1.0" width="208" display="ALPHA" height="50" min="0.01" direction="Horizontal" default="0.2" variable="ALPHA" />
+    <slider x="640" step="0.1" y="120" max="3.0" width="208" display="THRESHOLD" height="50" min="0.1" direction="Horizontal" default="1.0" variable="THRESHOLD" />
+    <slider x="640" step="0.1" y="175" max="0" width="208" display="V-RESET" height="50" min="-1.0" direction="Horizontal" default="0.0" variable="V-RESET" />
+    <slider x="640" step="1" y="230" max="30" width="208" display="POp" height="50" min="1" direction="Horizontal" default="10.0" variable="POp" />
+    <slider x="640" step="0.05" y="285" max="0.5" width="208" display="INHIB-FRAC" height="50" min="0" direction="Horizontal" default="0.2" variable="INHIB-FRAC" />
+    <slider x="640" step="0.05" y="340" max="1.0" width="208" display="INIT-NFUN-MEAN" height="50" min="0.1" direction="Horizontal" default="0.9" variable="INIT-NFUN-MEAN" />
+    <slider x="640" step="0.01" y="395" max="0.3" width="208" display="INIT-NFUN-SD" height="50" min="0" direction="Horizontal" default="0.08" variable="INIT-NFUN-SD" />
+    <slider x="853" step="0.01" y="10" max="0.99" width="208" display="BETA" height="50" min="0.5" direction="Horizontal" default="0.95" variable="BETA" />
+    <slider x="853" step="0.01" y="65" max="1.0" width="208" display="GAMMA" height="50" min="0.01" direction="Horizontal" default="0.05" variable="GAMMA" />
+    <slider x="853" step="0.01" y="120" max="0.25" width="208" display="D" height="50" min="0" direction="Horizontal" default="0.15" variable="D" />
+    <slider x="853" step="0.001" y="175" max="0.1" width="208" display="RHO" height="50" min="0" direction="Horizontal" default="0.01" variable="RHO" />
+    <slider x="853" step="0.1" y="230" max="2.0" width="208" display="KAPPA-E" height="50" min="0" direction="Horizontal" default="0.6" variable="KAPPA-E" />
+    <slider x="853" step="1" y="285" max="200" width="208" display="REPEAT-K" height="50" min="1" direction="Horizontal" default="10.0" variable="REPEAT-K" />
+    <slider x="853" step="1" y="340" max="100000" width="208" display="SEED" height="50" min="0" direction="Horizontal" default="1.0" variable="SEED" />
+    <slider x="853" step="1" y="395" max="10" width="208" display="STIM-RADIUS" height="50" min="1" direction="Horizontal" default="3.0" variable="STIM-RADIUS" />
+    <slider x="853" step="0.1" y="450" max="3.0" width="208" display="STIM-AMP" height="50" min="0" direction="Horizontal" default="1.0" variable="STIM-AMP" />
+    <plot x="1088" autoPlotX="true" yMax="10.0" autoPlotY="true" yAxis="Count" y="13" xMin="0.0" height="175" legend="false" xMax="10.0" yMin="0.0" width="417" xAxis="Tick" display="Spikes">
+      <setup />
+      <update />
+      <pen interval="1.0" mode="0" display="spikes" color="-2674135" legend="true">
+        <setup />
+        <update />
+      </pen>
+    </plot>
+    <plot x="1089" autoPlotX="true" yMax="1.0" autoPlotY="true" yAxis="Mean E" y="204" xMin="0.0" height="175" legend="false" xMax="10.0" yMin="0.0" width="417" xAxis="Tick" display="Environment E">
+      <setup />
+      <update />
+      <pen interval="1.0" mode="0" display="mean-E" color="-8630108" legend="true">
+        <setup />
+        <update />
+      </pen>
+    </plot>
+    <slider x="20" step="1" y="600" max="15" width="208" display="RADIUS-SIGNAL" height="50" min="1" direction="Horizontal" default="5.0" variable="RADIUS-SIGNAL" />
+    <slider x="20" step="1" y="545" max="10" width="208" display="OUT-RANGE" height="50" min="1" direction="Horizontal" default="4.0" variable="OUT-RANGE" />
+    <slider x="20" step="0.5" y="490" max="5" width="208" display="INIT-DEG-SD" height="50" min="0" direction="Horizontal" default="1.0" variable="INIT-DEG-SD" />
+    <slider x="20" step="1" y="435" max="10" width="208" display="INIT-DEG-MEAN" height="50" min="1" direction="Horizontal" default="3.0" variable="INIT-DEG-MEAN" />
+    <switch x="15" y="225" height="40" on="false" variable="BASELINE?" width="120" display="BASELINE?" />
+    <switch x="15" y="360" height="40" on="true" variable="PLOT?" width="120" display="PLOT?" />
+    <switch x="15" y="315" height="40" on="false" variable="LOG-CSV?" width="120" display="LOG-CSV?" />
+    <switch x="15" y="270" height="40" on="false" variable="LOCALIZED-STIM?" width="160" display="LOCALIZED-STIM?" />
+    <input x="381" multiline="false" y="438" height="60" variable="CONDITION-LABEL" type="string" width="140">full</input>
+    <input x="236" multiline="false" y="438" height="60" variable="EXP-PREFIX" type="string" width="140">E1</input>
+    <slider x="641" step="0.1" y="506" max="5.0" width="208" display="FIXED-W" height="50" min="0.1" direction="Horizontal" default="1.5" variable="FIXED-W" />
+    <slider x="641" step="1" y="451" max="10" width="208" display="FIXED-DELAY" height="50" min="1" direction="Horizontal" default="1.0" variable="FIXED-DELAY" />
+  </widgets>
+  <info>## WHAT IS IT?
+
+LANA Model v3.0 — Lateralized Artificial Neural Architecture.
+Protocol v3.0 FINAL compatible. Based on CODE_REVIEW_REVISED.
+
+## HOW TO USE IT
+
+1. Click Setup to initialize the network
+2. Click Go to run continuously
+3. Use BASELINE? to toggle baseline mode
+4. Use LOG-CSV? to enable data logging
+5. Use Tools &gt; BehaviorSpace for experiments E0-E6</info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5" />
+        <point x="40" y="250" />
+        <point x="150" y="205" />
+        <point x="260" y="250" />
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true" />
+    </shape>
+    <shape name="dot" rotatable="false" editableColorIndex="0">
+      <circle x="90" y="90" marked="true" color="-1920102913" diameter="120" filled="true" />
+    </shape>
+    <shape name="line" rotatable="true" editableColorIndex="0">
+      <line endX="150" startY="0" marked="true" color="-1920102913" endY="300" startX="150" />
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0" />
+          <dash value="1.0" />
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0" />
+          <dash value="0.0" />
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0" />
+          <dash value="1.0" />
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150" />
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150" />
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+  <previewCommands>setup repeat 75 [ go ]</previewCommands>
+  <experiments>
+    <experiment name="E0a-chain-delay" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="200">
+      <setup>setup-chain
+stimulus-chain</setup>
+      <go>step</go>
+      <metrics>
+        <metric>chain-first-spike-times</metric>
+        <metric>chain-complete?</metric>
+        <metric>chain-mean-delta</metric>
+        <metric>chain-mae</metric>
+        <metric>chain-speed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="FIXED-DELAY">
+          <value value="1" />
+          <value value="2" />
+          <value value="3" />
+          <value value="4" />
+          <value value="5" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10" />
+        <enumeratedValueSet variable="FIXED-W">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E0b-decay" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="true" timeLimit="300">
+      <setup>setup-decay-test</setup>
+      <go>step-decay-test</go>
+      <metrics>
+        <metric>mean [eIon] of patches</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10" />
+        <enumeratedValueSet variable="D">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E0c-threshold" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="200">
+      <setup>setup-single-neuron</setup>
+      <go>step-single-neuron</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>[spike-count] of neuron 0</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="STIM-AMP" first="0.1" step="0.1" last="3" />
+        <steppedValueSet variable="SEED" first="1" step="1" last="10" />
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E0d-refractory" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="500">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-global-min-ISI</metric>
+        <metric>report-FR</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="POp">
+          <value value="5" />
+          <value value="10" />
+          <value value="15" />
+          <value value="20" />
+          <value value="25" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E0e-chain-control" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="200">
+      <setup>setup-chain
+stimulus-chain</setup>
+      <go>step</go>
+      <metrics>
+        <metric>chain-first-spike-times</metric>
+        <metric>chain-complete?</metric>
+        <metric>chain-mean-delta</metric>
+        <metric>chain-mae</metric>
+        <metric>chain-speed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="FIXED-DELAY">
+          <value value="1" />
+          <value value="2" />
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="true" />
+          <value value="false" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="10" />
+        <enumeratedValueSet variable="FIXED-W">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E1-baseline" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="true" />
+          <value value="false" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="50" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E2-propagation" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>report-active-fraction</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="true" />
+          <value value="false" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="50" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="true" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E3-S1" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="50" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E3-S2" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="50" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="0.8" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.005" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-nominal" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-KAPPA-E" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.54" />
+          <value value="0.66" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-THRESHOLD" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="0.9" />
+          <value value="1.1" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-POp" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="POp">
+          <value value="9" />
+          <value value="11" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-BETA" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.9" />
+          <value value="0.99" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-GAMMA" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.045" />
+          <value value="0.055" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-D" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="D">
+          <value value="0.135" />
+          <value value="0.165" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-RHO" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.009" />
+          <value value="0.011" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E4-ALPHA" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.18" />
+          <value value="0.22" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E5-factorial" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+          <value value="0.8" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+          <value value="0.1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+          <value value="0.005" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E6a-baseline-N300" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="true" />
+          <value value="false" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="300" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E6b-S1-N300" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="300" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E6b-S2-N300" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="300" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="0.8" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.005" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E7-longer-horizon-full-baseline" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="true" />
+          <value value="false" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E7-longer-horizon-S1" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.01" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E7-longer-horizon-S2" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="0.8" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.005" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="E8-theta-kappa-grid" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="1000">
+      <setup>reset-timer
+setup</setup>
+      <go>step</go>
+      <metrics>
+        <metric>report-FR</metric>
+        <metric>report-active-fraction</metric>
+        <metric>report-fano</metric>
+        <metric>report-spike-CV</metric>
+        <metric>report-mean-w</metric>
+        <metric>report-sd-w</metric>
+        <metric>report-mean-E</metric>
+        <metric>report-t50</metric>
+        <metric>report-t90</metric>
+        <metric>report-initial-slope</metric>
+        <metric>report-wavefront-speed</metric>
+        <metric>timer</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="THRESHOLD">
+          <value value="0.8" />
+          <value value="0.9" />
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="KAPPA-E">
+          <value value="0.2" />
+          <value value="0.4" />
+          <value value="0.6" />
+        </enumeratedValueSet>
+        <steppedValueSet variable="SEED" first="1" step="1" last="20" />
+        <enumeratedValueSet variable="N-NODES">
+          <value value="150" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ALPHA">
+          <value value="0.2" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="V-RESET">
+          <value value="0" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="POp">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INHIB-FRAC">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-MEAN">
+          <value value="0.9" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-NFUN-SD">
+          <value value="0.08" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-MEAN">
+          <value value="3" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="INIT-DEG-SD">
+          <value value="1" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="OUT-RANGE">
+          <value value="4" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RADIUS-SIGNAL">
+          <value value="5" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BETA">
+          <value value="0.95" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="GAMMA">
+          <value value="0.05" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="D">
+          <value value="0.15" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="RHO">
+          <value value="0.0075" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="REPEAT-K">
+          <value value="10" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="BASELINE?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOCALIZED-STIM?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="PLOT?">
+          <value value="false" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="LOG-CSV?">
+          <value value="false" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+  <experiment name="EEG-S1-tickbytick" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="true" timeLimit="1000"><setup>setup</setup><go>step</go><metrics><metric>report-spikes-this-tick</metric><metric>report-meanE-this-tick</metric><metric>report-active-this-tick</metric></metrics><constants><steppedValueSet variable="SEED" first="1" step="1" last="50" /><enumeratedValueSet variable="N-NODES"><value value="150" /></enumeratedValueSet><enumeratedValueSet variable="ALPHA"><value value="0.2" /></enumeratedValueSet><enumeratedValueSet variable="V-RESET"><value value="0" /></enumeratedValueSet><enumeratedValueSet variable="POp"><value value="10" /></enumeratedValueSet><enumeratedValueSet variable="INIT-NFUN-MEAN"><value value="0.9" /></enumeratedValueSet><enumeratedValueSet variable="INIT-NFUN-SD"><value value="0.08" /></enumeratedValueSet><enumeratedValueSet variable="INIT-DEG-MEAN"><value value="3" /></enumeratedValueSet><enumeratedValueSet variable="INIT-DEG-SD"><value value="1" /></enumeratedValueSet><enumeratedValueSet variable="OUT-RANGE"><value value="4" /></enumeratedValueSet><enumeratedValueSet variable="RADIUS-SIGNAL"><value value="5" /></enumeratedValueSet><enumeratedValueSet variable="BETA"><value value="0.95" /></enumeratedValueSet><enumeratedValueSet variable="GAMMA"><value value="0.05" /></enumeratedValueSet><enumeratedValueSet variable="D"><value value="0.15" /></enumeratedValueSet><enumeratedValueSet variable="REPEAT-K"><value value="10" /></enumeratedValueSet><enumeratedValueSet variable="BASELINE?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="LOCALIZED-STIM?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="PLOT?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="LOG-CSV?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="THRESHOLD"><value value="1" /></enumeratedValueSet><enumeratedValueSet variable="INHIB-FRAC"><value value="0.2" /></enumeratedValueSet><enumeratedValueSet variable="RHO"><value value="0.01" /></enumeratedValueSet><enumeratedValueSet variable="KAPPA-E"><value value="0.6" /></enumeratedValueSet></constants></experiment><experiment name="EEG-S2-tickbytick" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="true" timeLimit="1000"><setup>setup</setup><go>step</go><metrics><metric>report-spikes-this-tick</metric><metric>report-meanE-this-tick</metric><metric>report-active-this-tick</metric></metrics><constants><steppedValueSet variable="SEED" first="1" step="1" last="50" /><enumeratedValueSet variable="N-NODES"><value value="150" /></enumeratedValueSet><enumeratedValueSet variable="ALPHA"><value value="0.2" /></enumeratedValueSet><enumeratedValueSet variable="V-RESET"><value value="0" /></enumeratedValueSet><enumeratedValueSet variable="POp"><value value="10" /></enumeratedValueSet><enumeratedValueSet variable="INIT-NFUN-MEAN"><value value="0.9" /></enumeratedValueSet><enumeratedValueSet variable="INIT-NFUN-SD"><value value="0.08" /></enumeratedValueSet><enumeratedValueSet variable="INIT-DEG-MEAN"><value value="3" /></enumeratedValueSet><enumeratedValueSet variable="INIT-DEG-SD"><value value="1" /></enumeratedValueSet><enumeratedValueSet variable="OUT-RANGE"><value value="4" /></enumeratedValueSet><enumeratedValueSet variable="RADIUS-SIGNAL"><value value="5" /></enumeratedValueSet><enumeratedValueSet variable="BETA"><value value="0.95" /></enumeratedValueSet><enumeratedValueSet variable="GAMMA"><value value="0.05" /></enumeratedValueSet><enumeratedValueSet variable="D"><value value="0.15" /></enumeratedValueSet><enumeratedValueSet variable="REPEAT-K"><value value="10" /></enumeratedValueSet><enumeratedValueSet variable="BASELINE?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="LOCALIZED-STIM?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="PLOT?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="LOG-CSV?"><value value="false" /></enumeratedValueSet><enumeratedValueSet variable="THRESHOLD"><value value="0.8" /></enumeratedValueSet><enumeratedValueSet variable="INHIB-FRAC"><value value="0.1" /></enumeratedValueSet><enumeratedValueSet variable="RHO"><value value="0.005" /></enumeratedValueSet><enumeratedValueSet variable="KAPPA-E"><value value="0.2" /></enumeratedValueSet></constants></experiment></experiments>
+</model>
