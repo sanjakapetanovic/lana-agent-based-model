@@ -1,0 +1,20 @@
+Parameter,Symbol,Default_S1,Default_S2,Unit,Description
+N-NODES,N,150,150,neurons,Number of neurons
+ALPHA,a,0.2,0.2,dimensionless,Leak coefficient
+THRESHOLD,theta,1.0,0.8,normalized,Firing threshold
+V-RESET,V_reset,0,0,normalized,Post-spike membrane reset
+POp,POp,10,10,ticks,Refractory period
+INHIB-FRAC,f_inh,0.2,0.1,fraction,Proportion of inhibitory neurons
+INIT-NFUN-MEAN,NFun_mean,0.9,0.9,normalized,Mean initial neuronal functionality
+INIT-NFUN-SD,NFun_sd,0.08,0.08,normalized,SD of initial neuronal functionality
+INIT-DEG-MEAN,deg_mean,3,3,links,Mean initial out-degree
+INIT-DEG-SD,deg_sd,1,1,links,SD of initial out-degree
+OUT-RANGE,R_out,4,4,patches,Maximum outgoing link range
+RADIUS-SIGNAL,R_sig,5,5,patches,Signal reception radius
+BETA,beta,0.95,0.95,dimensionless,Signal amplitude decay rate
+GAMMA,gamma,0.05,0.05,dimensionless,Signal distance attenuation rate
+D,D,0.15,0.15,dimensionless,Environmental field diffusion coefficient
+RHO,rho,0.01,0.005,dimensionless,Environmental field decay rate
+KAPPA-E,kappa_E,0.6,0.2,dimensionless,Environmental feedback strength
+REPEAT-K,K,10,10,ticks,Stimulation period
+STIM-AMP,A_stim,1.0,1.0,normalized,Stimulus amplitude
