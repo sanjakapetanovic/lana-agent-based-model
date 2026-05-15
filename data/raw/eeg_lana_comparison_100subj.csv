@@ -1,0 +1,9 @@
+family,EEG,EEG_dir,LANA,LANA_dir,match
+Amplitude/Activity,rms,↓,meanE_rms,↑,No
+Temporal variability,line_length,↑,meanE_line_length,↑,Yes
+Spectral complexity,spectral_entropy,↑,meanE_spectral_entropy,↓,No
+Slow activity,delta_rel,↓,meanE_low_power_rel,↑,No
+Mid activity,theta_rel,↓,meanE_mid_power_rel,↓,Yes
+Fast activity,beta_rel,↑,meanE_high_power_rel,↓,No
+Alpha power,alpha_rel,↑,N/A,N/A,N/A (EEG sanity check)
+Posterior alpha,posterior_alpha_rel,↑,N/A,N/A,N/A (EEG sanity check)
