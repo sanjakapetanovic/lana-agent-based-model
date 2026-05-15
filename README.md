@@ -15,8 +15,6 @@ LANA is a NetLogo-based agent-based spiking neural network model that decomposes
 
 The central contribution is architectural rather than numerical: propagation and feedback are represented as measurable, removable components rather than hidden aggregate coupling terms. Compared with general-purpose spiking simulators (Brian2, NEURON, NEST), LANA does not aim to improve efficiency or biophysical detail — its specific value is that mobile signal agents and environmental feedback remain explicit objects that can be observed, removed and audited.
 
-**Associated manuscript:** *A reproducible agent-based spiking model for decomposing signal transport and environmental feedback in neural recruitment dynamics* (Scientific Reports, submitted May 2026)
-
 ---
 
 ## What is included
